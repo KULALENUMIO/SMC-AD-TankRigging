@@ -39,6 +39,9 @@ crashlytics-build.properties
 # --- Reference footage (third-party videos, not ours to publish) ---
 /参考資料/
 
+# --- VFX research (Blender simulations: large caches and renders, reference stills) ---
+/VFX_Research/
+
 # --- OS / editors ---
 .DS_Store
 Thumbs.db
