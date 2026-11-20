@@ -52,29 +52,26 @@ namespace TankRig.Editor
             return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
 
+        public const string ParticleShader = "TankRig/Particle Unlit";
+
+        // HDRP: the package's particle Shader Graph (Unlit, transparent; alpha or additive blend).
+        // Materials made by older (URP) versions are switched over in place, so existing effects keep their links.
         static Material EnsureMaterial(string file, Texture2D tex, bool additive)
         {
             string path = Folder + "/" + file;
             var m = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (m) return m;
-            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit")
-                         ?? Shader.Find("Particles/Standard Unlit")
-                         ?? Shader.Find("Sprites/Default");
-            m = new Material(shader);
-            m.SetTexture("_BaseMap", tex);
-            m.SetTexture("_MainTex", tex);
+            if (m && m.shader != null && m.shader.name == ParticleShader) return m;
+            bool create = !m;
+            var shader = HDRPSetup.ParticleShader();
+            if (shader == null) { Debug.LogWarning("[TankRig] " + ParticleShader + " が見つかりません"); return m; }
+            if (create) m = new Material(shader);
+            else m.shader = shader;
+            m.SetTexture("_BaseColorMap", tex);
             m.SetColor("_BaseColor", Color.white);
-            m.SetFloat("_Surface", 1f);
-            m.SetFloat("_Blend", additive ? 2f : 0f);
-            m.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
-            m.SetFloat("_DstBlend", additive ? (float)BlendMode.One : (float)BlendMode.OneMinusSrcAlpha);
-            m.SetFloat("_SrcBlendAlpha", (float)BlendMode.One);
-            m.SetFloat("_DstBlendAlpha", additive ? (float)BlendMode.One : (float)BlendMode.OneMinusSrcAlpha);
-            m.SetFloat("_ZWrite", 0f);
-            m.SetOverrideTag("RenderType", "Transparent");
-            m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            m.renderQueue = (int)RenderQueue.Transparent;
-            AssetDatabase.CreateAsset(m, path);
+            m.SetFloat("_BlendMode", additive ? 1f : 0f);   // HDRP BlendMode: 0 Alpha, 1 Additive
+            HDRPSetup.Validate(m);
+            if (create) AssetDatabase.CreateAsset(m, path);
+            else EditorUtility.SetDirty(m);
             return m;
         }
 
@@ -101,14 +98,15 @@ namespace TankRig.Editor
             Directory.CreateDirectory(Folder);
             string path = Folder + "/TankRig_Ground.mat";
             var m = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (m) return m;
-            m = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard"));
-            var c = new Color(0.36f, 0.38f, 0.32f);
-            m.SetColor("_BaseColor", c);
-            m.SetColor("_Color", c);
+            if (m && m.shader != null && m.shader.name == "HDRP/Lit") return m;
+            bool create = !m;
+            if (create) m = new Material(Shader.Find("HDRP/Lit"));
+            else m.shader = Shader.Find("HDRP/Lit");
+            m.SetColor("_BaseColor", new Color(0.36f, 0.38f, 0.32f));
             m.SetFloat("_Smoothness", 0.08f);
-            m.SetFloat("_Glossiness", 0.08f);
-            AssetDatabase.CreateAsset(m, path);
+            HDRPSetup.Validate(m);
+            if (create) AssetDatabase.CreateAsset(m, path);
+            else EditorUtility.SetDirty(m);
             return m;
         }
 
@@ -241,11 +239,10 @@ namespace TankRig.Editor
             Undo.RegisterCreatedObjectUndo(go, "Create effect");
             go.transform.SetParent(point, false);
             go.transform.localPosition = new Vector3(0f, 0f, 0.5f);
-            var l = go.AddComponent<Light>();
-            l.type = LightType.Point;
+            var l = HDRPSetup.AddLight(go, LightType.Point);
             l.range = 12f;
             l.color = new Color(1f, 0.7f, 0.35f);
-            l.intensity = 0f;
+            l.intensity = 0f;   // driven by TankController (muzzleLightIntensity, lumen)
             l.shadows = LightShadows.None;
             return l;
         }
@@ -328,12 +325,11 @@ namespace TankRig.Editor
             var go = new GameObject("FX_Headlight");
             Undo.RegisterCreatedObjectUndo(go, "Create effect");
             go.transform.SetParent(point, false);
-            var l = go.AddComponent<Light>();
-            l.type = LightType.Spot;
+            var l = HDRPSetup.AddLight(go, LightType.Spot);
             l.range = 40f;
             l.spotAngle = 70f;
             l.innerSpotAngle = 35f;
-            l.intensity = 5f;
+            l.intensity = 3000f;   // lumen (a strong vehicle headlight)
             l.color = new Color(1f, 0.95f, 0.82f);
             l.shadows = LightShadows.None;
             l.enabled = false;
@@ -346,10 +342,9 @@ namespace TankRig.Editor
             Undo.RegisterCreatedObjectUndo(go, "Create effect");
             go.transform.SetParent(point, false);
             go.transform.localPosition = new Vector3(0f, 0f, 0.15f);
-            var l = go.AddComponent<Light>();
-            l.type = LightType.Point;
+            var l = HDRPSetup.AddLight(go, LightType.Point);
             l.range = 3f;
-            l.intensity = 1.2f;
+            l.intensity = 60f;   // lumen (x3 when braking)
             l.color = new Color(1f, 0.1f, 0.05f);
             l.shadows = LightShadows.None;
             l.enabled = false;

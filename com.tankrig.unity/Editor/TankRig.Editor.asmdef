@@ -1,7 +1,11 @@
 {
     "name": "TankRig.Editor",
     "rootNamespace": "TankRig.Editor",
-    "references": [ "TankRig.Runtime" ],
+    "references": [
+        "TankRig.Runtime",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.HighDefinition.Runtime"
+    ],
     "includePlatforms": [ "Editor" ],
     "autoReferenced": true
 }

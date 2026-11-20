@@ -97,7 +97,7 @@ namespace TankRig
         [Tooltip("砲身が元の位置に戻る速さ")] public float recoilReturn = 3.5f;
         [HideInInspector] public float machineGunInterval = 0.08f;
         [Tooltip("主砲の射程（m）")] public float range = 1500f;
-        public float muzzleLightIntensity = 12f;
+        [Tooltip("主砲の発砲光の明るさ（ルーメン、HDRP）")] public float muzzleLightIntensity = 800000f;
 
         [Header("機銃（いくつでも）")]
         public TankMachineGun[] machineGuns = new TankMachineGun[0];

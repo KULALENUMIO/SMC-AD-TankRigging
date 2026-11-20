@@ -8,7 +8,7 @@ SMC-AD で取り込んだ戦車モデルに、同梱の履帯（転輪一式 + �
 **WASD とマウスで操縦できる戦車**にする Unity エディタ拡張です。
 車体だけを簡素な物理演算（Rigidbody）で動かし、履帯は物理演算せずに描画だけで地形に沿わせるので、軽く動きます。
 
-- 動作環境: Unity 6（6000.0 以降。確認は 6000.3 / URP）、Input System（パッケージの依存として自動で入ります）
+- 動作環境: Unity 6.3（6000.3 以降）、**HDRP 17.3 以降**（0.8.0 から HDRP 専用。URP 版は `urp-final` タグ）、Input System（パッケージの依存として自動で入ります）
 - 導入（どちらか）
   - Git から: Package Manager > + > **Add package from git URL…** に
     `https://github.com/KULALENUMIO/SMC-AD-PLUS-UNITY-TANK-RIGGING.git?path=/com.tankrig.unity`
