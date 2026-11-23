@@ -1,0 +1,85 @@
+// Flipbook baker: an orthographic projection of the main-gun simulation's grids into one flipbook cell.
+// For each texel a ray crosses the box along W; the smoke / flame (grids A, B, C) or the dust (grid D) give their
+// extinction exactly as the ray march computes it, and the cell gets
+//   r  coverage 1 - exp(-tau)       g  temperature (glow-weighted)       b  brightness (1 - soot; dirt stays bright)
+// and, in _OutFlow, how the visible gas moves across the card: the velocity weighted like the colour (what is seen),
+// projected on the card's axes, in card-uv per second (for flow-blended flipbooks).
+#pragma kernel Project
+
+Texture3D<float4> _SA, _SB, _SC, _SD;
+Texture3D<float4> _VA, _VB, _VC, _VD;   // velocity (m/s, grid axes)
+float4x4 _RA, _RB, _RC, _RD;            // grid -> world (rotation used)
+float4 _FlowU, _FlowV;                  // world unit axes of the card / (2 x half extent): velocity -> card uv per second
+RWTexture2D<float2> _OutFlow;
+SamplerState sampler_linear_clamp;
+float4x4 _W2UA, _W2UB, _W2UC, _W2UD;
+float4 _Use;          // x A, y B, z C, w D (1 = use)
+float4 _Look;         // smoke sigma, smoke gamma, flame sigma, heat range
+float _DustSigma;
+int _Mode;            // 0 smoke + flame, 1 dust
+float4 _Origin;       // world centre of the box
+float4 _AxisU, _AxisV, _AxisW;   // world axes scaled by their half extents (u right, v up, w through)
+int _Steps;
+int _Res;             // cell size in texels
+RWTexture2D<float4> _Out;
+
+bool In01(float3 u) { return all(u >= 0) && all(u <= 1); }
+
+[numthreads(8, 8, 1)]
+void Project(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Res || id.y >= (uint)_Res) return;
+    float2 uv = (id.xy + 0.5) / _Res * 2.0 - 1.0;
+    float3 base = _Origin.xyz + _AxisU.xyz * uv.x + _AxisV.xyz * uv.y;
+    float ds = 2.0 * length(_AxisW.xyz) / _Steps;
+    float T = 1.0, tau = 0.0, heatW = 0.0, sootW = 0.0, wSum = 0.0;
+    float3 velW = 0;
+    for (int k = 0; k < _Steps; k++)
+    {
+        float3 P = base + _AxisW.xyz * (((k + 0.5) / _Steps) * 2.0 - 1.0);
+        float sig = 0.0, heat = 0.0, soot = 0.0;
+        float3 vel = 0; float vw = 0;
+        if (_Mode == 0)
+        {
+            float4 S = 0;
+            float3 uA = mul(_W2UA, float4(P, 1)).xyz;
+            if (_Use.x > 0.5 && In01(uA))
+            {
+                S = _SA.SampleLevel(sampler_linear_clamp, uA, 0);
+                vel += mul((float3x3)_RA, _VA.SampleLevel(sampler_linear_clamp, uA, 0).xyz) * S.x; vw += S.x;
+            }
+            if (_Use.y > 0.5)
+            {
+                float3 uB = mul(_W2UB, float4(P, 1)).xyz;
+                if (In01(uB)) { float4 SB = _SB.SampleLevel(sampler_linear_clamp, uB, 0); vel += mul((float3x3)_RB, _VB.SampleLevel(sampler_linear_clamp, uB, 0).xyz) * SB.x; vw += SB.x; float tot = S.x + SB.x; if (tot > 1e-6) S.w = (S.w * S.x + SB.w * SB.x) / tot; S.y = max(S.y, SB.y); S.x = tot; }
+            }
+            if (_Use.z > 0.5)
+            {
+                float3 uC = mul(_W2UC, float4(P, 1)).xyz;
+                if (In01(uC)) { float4 SC = _SC.SampleLevel(sampler_linear_clamp, uC, 0); vel += mul((float3x3)_RC, _VC.SampleLevel(sampler_linear_clamp, uC, 0).xyz) * SC.x; vw += SC.x; float tot = S.x + SC.x; if (tot > 1e-6) S.w = (S.w * S.x + SC.w * SC.x) / tot; S.y = max(S.y, SC.y); S.x = tot; }
+            }
+            heat = saturate((S.y - 0.7) / max(_Look.w, 1e-3));
+            sig = _Look.x * pow(max(S.x, 0.0), _Look.y) + _Look.z * heat;
+            soot = saturate(S.w);
+        }
+        else if (_Use.w > 0.5)
+        {
+            float3 uD = mul(_W2UD, float4(P, 1)).xyz;
+            if (In01(uD)) { float4 D = _SD.SampleLevel(sampler_linear_clamp, uD, 0); sig = _DustSigma * max(D.x + 2.0 * D.y, 0.0); soot = saturate(D.y / max(D.x + D.y, 1e-4)) * 0.3;
+                            vel = mul((float3x3)_RD, _VD.SampleLevel(sampler_linear_clamp, uD, 0).xyz); vw = 1; }
+        }
+        if (sig <= 0.0) continue;
+        float a = 1.0 - exp(-sig * ds);
+        float w = T * a;
+        heatW += w * heat; sootW += w * soot; wSum += w;
+        if (vw > 1e-6) velW += w * vel / vw;
+        tau += sig * ds;
+        T *= 1.0 - a;
+    }
+    float cov = 1.0 - exp(-tau);
+    float temp = wSum > 1e-5 ? heatW / wSum : 0.0;
+    float bright = 1.0 - (wSum > 1e-5 ? sootW / wSum : 0.0);
+    _Out[id.xy] = float4(cov, temp, bright, tau);
+    float3 v = wSum > 1e-5 ? velW / wSum : 0;
+    _OutFlow[id.xy] = float2(dot(v, _FlowU.xyz), dot(v, _FlowV.xyz));
+}

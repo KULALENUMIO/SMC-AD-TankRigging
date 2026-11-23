@@ -672,6 +672,9 @@ namespace TankRig.Editor
             c.headlightLights = c.headlights.Select(TankFxFactory.CreateHeadlight).ToArray();
             c.rearLightLights = c.rearLights.Select(TankFxFactory.CreateRearLight).ToArray();
 
+            if (s.realisticEffects) TankRigFxSetup.AddTo(c);
+            else if (root.TryGetComponent<TankRig.FX.TankFx>(out var realFx)) { Undo.RecordObject(realFx, "戦車の完成"); realFx.enabled = false; }
+
             c.driveMode = s.physicsDrive ? TankController.DriveMode.Physics : TankController.DriveMode.Kinematic;
             SetupBody(s, c, hb);
 
@@ -869,6 +872,7 @@ namespace TankRig.Editor
             tc.distance = Mathf.Clamp(size * 1.7f, 6f, 40f);
             tc.maxDistance = Mathf.Max(tc.distance * 2.5f, 20f);
             c.aimCamera = tc;
+            TankRigSightsSetup.AddTo(cam, c);   // V: optical sight / display / helmet
             var root = c.transform;
             Undo.RecordObject(cam.transform, "戦車の完成");
             Vector3 pivot = root.position + Vector3.up * tc.height;

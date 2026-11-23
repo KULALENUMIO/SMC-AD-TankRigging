@@ -37,6 +37,7 @@ namespace TankRig
         [Tooltip("弾薬ベルト 1 本の弾数（0 = 無限）")] public int beltSize = 0;
         [Tooltip("ベルト交換の時間（秒）")] public float beltReload = 5f;
         [Tooltip("着弾の土煙・火花の量（1 = 標準）")] public float impactScale = 1f;
+        [Tooltip("口径（mm）。リアルな発砲エフェクト（TankFx）の大きさがこれで決まる")] public float caliberMm = 7.62f;
 
         public MachineGunSpec Clone() => (MachineGunSpec)MemberwiseClone();
     }
@@ -153,6 +154,7 @@ namespace TankRig
         public float reloadTime = 2f;
         [Tooltip("火力（主砲の 1 = 標準に対して）。反動・砲身の後退・発砲炎の大きさに比例")] [Range(0.05f, 4f)] public float power = 0.35f;
         public float range = 1500f;
+        [Tooltip("口径（mm）。リアルな発砲エフェクト（TankFx）の大きさがこれで決まる")] public float caliberMm = 30f;
 
         [Header("機銃")]
         public MachineGunSpec machineGun = new MachineGunSpec();

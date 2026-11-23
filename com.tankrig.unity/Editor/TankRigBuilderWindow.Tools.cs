@@ -563,6 +563,7 @@ namespace TankRig.Editor
                         EditorGUILayout.Slider(e.FindPropertyRelative("power"), 0.05f, 4f,
                             new GUIContent("火力", "主砲の 1 = 標準に対して。車体への反動、砲身の後退量、カメラの揺れ、発砲炎の大きさに比例"));
                         EditorGUILayout.Slider(e.FindPropertyRelative("range"), 100f, 3000f, new GUIContent("射程（m）"));
+                        EditorGUILayout.Slider(e.FindPropertyRelative("caliberMm"), 12.7f, 60f, new GUIContent("口径（mm）", "リアルなエフェクトの発砲炎・煙・光の大きさがこれで決まります"));
                     }
                     else DrawSpec(e.FindPropertyRelative("machineGun"));
                 }
@@ -612,6 +613,7 @@ namespace TankRig.Editor
             using (new EditorGUI.DisabledScope(belt.intValue <= 0))
                 EditorGUILayout.Slider(spec.FindPropertyRelative("beltReload"), 0.5f, 20f, new GUIContent("ベルト交換（秒）"));
             EditorGUILayout.Slider(spec.FindPropertyRelative("impactScale"), 0f, 3f, new GUIContent("着弾の土煙・火花の量"));
+            EditorGUILayout.Slider(spec.FindPropertyRelative("caliberMm"), 5.56f, 20f, new GUIContent("口径（mm）", "リアルなエフェクトの発砲炎・煙・光の大きさがこれで決まります"));
         }
 
         static void SetSpec(SerializedProperty spec, float rpm, float spread, float range, int tracerEvery, float tracerSpeed, int belt, float reload, float impact)

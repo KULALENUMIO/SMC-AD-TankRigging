@@ -1,0 +1,626 @@
+// Muzzle blast gas solver. Each grid is fixed in the world when the gun fires (grid axes: x = downrange, y = up for the
+// ground-based grids, z = lateral). Sources are placed through _GridToMuzzle, the CURRENT muzzle frame (x down the bore),
+// so they follow recoil, elevation and traverse while the gas already out stays where it is.
+// Fields:  V  (xyz velocity m/s)
+//          S  (x smoke density, y temperature above ambient, z fuel, w soot = brown-ness of the smoke 0..1)
+//          R  (xyz rest position for detail noise, w seed = per-lump random value carried with the gas)
+// The seed is what makes the fire burn out lump by lump instead of all at once.
+#pragma kernel Clear
+#pragma kernel CurlK
+#pragma kernel Sources
+#pragma kernel Divergence
+#pragma kernel Jacobi
+#pragma kernel Project
+#pragma kernel AdvectSL
+#pragma kernel AdvectMC
+#pragma kernel Light
+#pragma kernel Handoff
+#pragma kernel HandoffB
+#pragma kernel FireDown
+#pragma kernel FireBlur
+#pragma kernel SolidMask
+#pragma kernel SurfaceDust
+
+#include "MBNoise.hlsl"
+
+uint3 _Res;
+float _Cell, _Dt, _T;
+float3 _BoxMin;
+float _GroundSolid;              // 1: the bottom face is the ground (coarse grid); 0: open (muzzle grid)
+Texture3D<float4> _V2, _S2, _R2;  // fine grid, read by Handoff
+float3 _B2Min, _B2Size;
+float _HandoffWidth;
+
+Texture3D<float4> _V, _S, _R, _VHat, _SHat, _RHat;
+Texture3D<float4> _Curl;
+Texture3D<float> _P, _Div;
+RWTexture3D<float4> _VOut, _SOut, _ROut, _CurlOut;
+RWTexture3D<float4> _VRW, _SRW, _RRW;
+RWTexture3D<float> _POut, _DivOut, _ExpRW;
+RWTexture3D<float2> _LightOut;
+SamplerState mb_linear_clamp_sampler;
+
+// envelopes (0..1) for this step, set from C#
+float _EPre, _EUmb, _EFire, _EJet, _EJetDens, _EDust, _DustR, _EEvac, _ETurb;
+// parameters
+float _JetSpeed, _JetRadius, _JetDens, _LumpFreq, _RestRelax, _FireSpeed, _FireRadial, _FireLumpVel, _FuelAmt, _FireTemp, _FireDens;
+float3 _FireCenter, _FireRadii;
+float _FireCoreExp;
+float _EMach, _MachX, _ShockStr, _ShockR0, _ShockR1;
+float4 _Amt1;   // per-stage amount (effect controls): precursor, umbrella, Mach disk, fireball
+float4 _Amt2;   // jet, evacuator
+static float gAmt = 1.0;   // amount of the stage being emitted (scales its gas, heat and fuel)
+float3 _ShockC;
+float _WarmCool, _EvacTemp, _EvacSpdK, _TagFade, _TagSlow, _TagBase, _TagTurb, _TagPastFade, _EvacCoreLen, _EvacFlutter;
+float _UmbSpeed, _EvacSpeed, _EvacRadius, _EvacDens, _EvacPulseHz, _EvacWobble, _JetLen, _JetPulseHz, _JetWobble;
+float _Ignite, _BurnRate, _MixK, _Heat, _SmokeYield, _SootYield, _Expand, _Cool, _FuelDecay;
+float _TauMin, _TauMax;
+float _Beta, _Alpha, _Vort, _TurbAmp, _TurbSize, _Drag, _WindCouple;
+float3 _Wind;
+float _GustAmp, _GustSize;
+float _SigmaK, _Gamma, _LateFade, _VortScale, _MCW;
+float3 _SunDirGrid;  // towards the sun, unit, grid axes
+float4x4 _GridToMuzzle, _MuzzleToGrid;   // grid space <-> current muzzle frame (x along the bore)
+float3 _UpGrid;                          // world up in grid axes
+float4x4 _DstToSrc, _SrcToDst;           // handoff: destination grid <-> source grid
+float _DustPick, _DustUT, _DustFall, _DustLayer, _DustEnv;
+Texture3D<float> _Solid;                   // 1 inside the tank (moving obstacles), 0 in the air
+float _UseSolid;   // ground dust: pick-up rate, threshold wind (m/s), settling, layer height (m)
+
+float3 CellPos(uint3 id) { return _BoxMin + (float3(id) + 0.5) * _Cell; }
+float3 ToUVW(float3 cellCoord) { return cellCoord / float3(_Res); }   // cellCoord: continuous index space (+0.5 = centre)
+bool Inside(int3 c) { return all(c >= 0) && all(c < int3(_Res)); }
+bool SolidAt(int3 c) { return _UseSolid > 0.5 && Inside(c) && _Solid[c] > 0.5; }
+
+[numthreads(8, 8, 8)]
+void Clear(uint3 id : SV_DispatchThreadID)
+{
+    _VOut[id] = 0; _SOut[id] = 0; _ROut[id] = float4(CellPos(id), 0.5);
+    _POut[id] = 0; _DivOut[id] = 0;
+}
+
+[numthreads(8, 8, 8)]
+void CurlK(uint3 id : SV_DispatchThreadID)
+{
+    int3 c = int3(id);
+    int3 mx = int3(int(_Res.x) - 1, int(_Res.y) - 1, int(_Res.z) - 1);
+    float3 vxp = _V[min(c + int3(1, 0, 0), mx)].xyz, vxm = _V[max(c - int3(1, 0, 0), 0)].xyz;
+    float3 vyp = _V[min(c + int3(0, 1, 0), mx)].xyz, vym = _V[max(c - int3(0, 1, 0), 0)].xyz;
+    float3 vzp = _V[min(c + int3(0, 0, 1), mx)].xyz, vzm = _V[max(c - int3(0, 0, 1), 0)].xyz;
+    float inv = 0.5 / _Cell;
+    float3 w;
+    w.x = (vyp.z - vym.z - (vzp.y - vzm.y)) * inv;
+    w.y = (vzp.x - vzm.x - (vxp.z - vxm.z)) * inv;
+    w.z = (vxp.y - vxm.y - (vyp.x - vym.x)) * inv;
+    _CurlOut[id] = float4(w, length(w));
+}
+
+// blend a source in: m = coverage 0..1
+void Emit(inout float4 v, inout float4 s, inout float4 r, float3 p, float m, float3 vel, float dens, float temp, float fuel, float soot, float seed, float tag = 0)
+{
+    if (m <= 0.0) return;
+    v.xyz = lerp(v.xyz, vel, m);
+    v.w = lerp(v.w, tag, m);   // V.w = bore-gas tag (jet / evacuator): fades fast once it has slowed down
+    s.x = max(s.x, dens * gAmt * m);
+    s.y = max(s.y, temp * gAmt * m);
+    s.z = max(s.z, fuel * gAmt * m);
+    s.w = lerp(s.w, soot, m);
+    r.xyz = lerp(r.xyz, p, m);
+    r.w = lerp(r.w, seed, m);
+}
+
+[numthreads(8, 8, 8)]
+void Sources(uint3 id : SV_DispatchThreadID)
+{
+    float3 p = CellPos(id);
+    float4 v = _VRW[id], s = _SRW[id], r = _RRW[id];
+    float4 w = _Curl[id];
+    float dt = _Dt;
+    float3 pm = mul(_GridToMuzzle, float4(p, 1)).xyz;   // this cell in the current muzzle frame
+    float rad = length(pm.yz);
+    #define MV(vel) mul((float3x3)_MuzzleToGrid, (vel))   // muzzle-frame velocity -> grid
+
+    // --- stage 1: precursor - a little grey-brown gas pushed out ahead of the round, with a small burning core
+    if (_EPre > 0)
+    {
+        gAmt = _Amt1.x;
+        float3 q = (pm - float3(0.75, 0, 0)) / float3(0.75, 0.6, 0.6);
+        float m = saturate((1.0 - length(q)) * 3.0) * _EPre;
+        float3 dir = normalize(q + 1e-4);
+        float core = saturate(1.0 - length(q) * 1.6);   // a small burning core inside the grey-brown puff
+        Emit(v, s, r, p, m, MV(float3(50, 0, 0) + dir * 15.0), 1.0, 1.4 + 2.4 * core, 0.6, 0.55, MBNoise(pm * 1.3 + 3.0));
+    }
+    // --- stage 2: dense grey ring (starting vortex / "umbrella")
+    if (_EUmb > 0)
+    {
+        gAmt = _Amt1.y;
+        float2 tq = float2(rad - 0.45, pm.x - 0.7);
+        float m = saturate((0.22 - length(tq)) / 0.1) * _EUmb;
+        float3 radial = float3(0, pm.y, pm.z) / max(rad, 1e-3);
+        Emit(v, s, r, p, m, MV(float3(40, 0, 0) + radial * _UmbSpeed), 1.0, 1.0, 0.0, 0.4, MBNoise(pm * 1.3 + 9.0));
+    }
+    // --- the Mach disk: the normal shock closing the under-expanded jet ~15 calibres out, glowing white for a few ms
+    if (_EMach > 0)
+    {
+        gAmt = _Amt1.z;
+        float m = saturate((0.38 - rad) / (0.6 * _Cell)) * saturate(1.0 - abs(pm.x - _MachX) / 0.12) * _EMach;
+        Emit(v, s, r, p, m, MV(float3(30, 0, 0)), 0.25, 4.5, 0.0, 0.1, 0.5);
+    }
+    // --- stage 3: the fireball: lumpy fuel-rich cloud; every lump gets its own seed (richness)
+    if (_EFire > 0)
+    {
+        gAmt = _Amt1.w;
+        float3 q = (pm - _FireCenter) / _FireRadii;
+        float rq = length(q);
+        float lump = MBFbm(pm * _LumpFreq + 17.3);
+        float m = saturate((1.0 - rq) * 3.0) * smoothstep(0.40, 0.58, lump + (1.0 - rq) * 0.25) * _EFire;
+        if (m > 0.001)
+        {
+            float seed = saturate(MBFbm(pm * 0.7 + 41.0) * 1.6 - 0.3);
+            float rich = lerp(0.45, 1.55, seed);
+            float3 rv = (MBNoise3(pm * 0.45 + 5.0) - 0.5) * 2.0 * _FireLumpVel;
+            float3 vel = MV(float3(_FireSpeed, 0, 0) + normalize(q + 1e-4) * _FireRadial + rv);
+            // hottest in the core, cooling towards the rim (white core -> yellow -> orange -> red edge in the photos)
+            float core = pow(saturate(1.0 - rq), _FireCoreExp);
+            Emit(v, s, r, p, m, vel, _FireDens, _FireTemp * rich * (0.3 + 0.7 * core), _FuelAmt * rich * (0.5 + 0.5 * core), 0.25, seed);
+        }
+    }
+    // --- stage 4: the shock running along the ground lifts a ragged dust ring
+    if (_EDust > 0 && p.y < _BoxMin.y + 0.6)
+    {
+        gAmt = 1.0;
+        float rr = length(float2(p.x - 2.0, p.z));
+        float band = saturate(1.0 - abs(rr - _DustR) / 0.8) * saturate(1.0 - rr / 9.0);
+        float n = MBFbm(p * 0.9 + 77.0);
+        float m = band * smoothstep(0.25, 0.6, n) * saturate(1.0 - (p.y - _BoxMin.y) / 0.6) * _EDust;
+        float2 outw = float2(p.x - 2.0, p.z) / max(rr, 1e-3);
+        Emit(v, s, r, p, m * 0.6, float3(outw.x * 8.0, 6.0, outw.y * 8.0), 0.9, 0.0, 0.0, 0.45, n);
+    }
+    // --- stage 5: bore blow-down jet: drives the fire downrange, white streak at the muzzle
+    if (_EJet > 0 || _EJetDens > 0)
+    {
+        gAmt = _Amt2.x;
+        // a short nozzle disc (not a long cylinder: that printed a pipe); the gas comes in puffs (~30 Hz) and the
+        // nozzle direction wobbles, so the stream breaks into a chain of eddies like the footage
+        float m = saturate((_JetRadius - rad) / (0.6 * _Cell)) * step(0.0, pm.x) * step(pm.x, _JetLen);
+        float puff = smoothstep(0.35, 0.65, MBNoise(float3(_T * _JetPulseHz, 3.1, 0.7)));
+        float2 wob = (float2(MBNoise(float3(_T * 45.0, 7.3, 1.1)), MBNoise(float3(_T * 45.0, 2.2, 9.4))) - 0.5) * 2.0;
+        float sp = _JetSpeed * _EJet;
+        float3 vel = MV(float3(sp * (0.55 + 0.6 * puff), wob * sp * _JetWobble) + float3(0, pm.y, pm.z) * 6.0 * _EJet);
+        Emit(v, s, r, p, m, vel, _EJetDens * _JetDens * (0.25 + 0.75 * puff), 1.2 * _EJetDens, 0.0, 0.0, 0.6 + 0.4 * puff, 1.0);
+    }
+    // --- stage 7: bore evacuator stream
+    if (_EEvac > 0)
+    {
+        // a thin high-pressure stream shot straight out; as the pressure drops (_EvacSpdK) it slows and starts to
+        // flutter (wobble grows), and once it slows down the tag makes it vanish ("piro-piro")
+        // The pressure core: a thin straight stream of length L (shrinks as the pressure falls) is driven directly;
+        // past its tip the solver takes over and the stream frays and disperses. As the pressure drops the core
+        // bends with a travelling wave towards its tip ("piro-piro").
+        float L = max(_EvacCoreLen * _EvacSpdK, 0.3);
+        float xn = saturate(pm.x / L);
+        float sp = _EvacSpeed * _EvacSpdK;
+        float bendAmp = _EvacFlutter * (1.0 - _EvacSpdK) * xn * xn;
+        float2 axis = bendAmp * (float2(MBNoise(float3(pm.x * 2.5 - _T * 9.0, 4.4, 2.2)), MBNoise(float3(pm.x * 2.5 - _T * 9.0, 8.8, 6.6))) - 0.5) * 2.0;
+        float dr = length(pm.yz - axis);
+        float r0 = _EvacRadius * (1.0 + 0.8 * xn);
+        float m = saturate((r0 - dr) / (0.6 * _Cell)) * step(0.0, pm.x) * step(pm.x, L) * _EEvac;
+        if (m > 0)
+        {
+            float surge = MBNoise(float3(pm.x * 3.0 - _T * sp * 0.5, 0.3, 5.1));   // puffs riding down the stream
+            float3 vel = MV(float3(sp * (0.85 + 0.3 * surge), 0, 0));
+            float dens = _EvacDens * _Amt2.y * (0.55 + 0.45 * surge) * (1.0 - 0.5 * xn);
+            // inside the core keep the speed; only the nozzle end adds gas (else the core prints as a tube)
+            float add = step(pm.x, 0.3) + (1.0 - step(pm.x, 0.3)) * 0.35 * surge;
+            v.xyz = lerp(v.xyz, vel, m * 0.85);
+            v.w = lerp(v.w, 1.0, m);
+            s.x = max(s.x, dens * m * add);
+            s.y = max(s.y, _EvacTemp * _Amt2.y * m);
+            s.w = lerp(s.w, 0.0, m);
+            r.xyz = lerp(r.xyz, p, m * 0.2);
+            r.w = lerp(r.w, 0.9, m);
+        }
+    }
+
+    // --- combustion: burns where hot, faster where the gas is stirred and the lump is lean
+    float seed = r.w;
+    float fuel = s.z;
+    float burn = 0;
+    if (s.y > _Ignite && fuel > 1e-4)
+    {
+        float oxy = saturate(1.0 - s.x * 0.6);
+        float mixing = 0.25 + w.w * _MixK;
+        float rate = _BurnRate * mixing * lerp(1.8, 0.45, seed) * (0.3 + 0.7 * oxy);
+        burn = fuel * (1.0 - exp(-rate * dt));
+    }
+    s.z = fuel - burn;
+    s.y += burn * _Heat;
+    s.x += burn * _SmokeYield;
+    s.w = clamp(s.w + burn * _SootYield / (s.x + 0.05), -1.0, 1.0);
+    _ExpRW[id] = burn * _Expand / max(dt, 1e-5);
+    // cooling: by radiation/mixing; rich lumps stay hot longer
+    // flame-hot gas loses heat fast (radiation); warm gas (evacuator, smoke) cools slowly and keeps rising
+    float coolRate = _Cool * lerp(1.6, 0.55, seed) * saturate((s.y - 0.4) / 1.2) + _WarmCool;
+    s.y *= exp(-dt * (coolRate + w.w * 0.004));
+    s.z *= exp(-dt * _FuelDecay);
+    // dissipation: thin fringes go first, cores linger; the seed decorrelates neighbouring lumps
+    float seed2 = frac(seed * 7.31 + 0.17);
+    float tau = lerp(_TauMin, _TauMax, seed2) * (0.6 + 0.4 * saturate(s.x / 0.1));
+    s.x *= exp(-dt / tau - dt * _LateFade);   // late fade: the haze is gone after ~5 s
+    // bore gas: once the stream has lost its speed it disperses almost at once
+    s.x *= exp(-dt * v.w * (_TagFade * saturate(1.0 - length(v.xyz) / _TagSlow) + _TagBase));
+
+    // rest coordinates slowly follow the gas so the detail noise does not stretch into streaks
+    r.xyz = lerp(r.xyz, p, 1.0 - exp(-dt * _RestRelax));
+
+    // --- blast wave: the shell passing through this cell this step kicks the gas outwards
+    if (_ShockStr > 0)
+    {
+        float3 dc = p - _ShockC;
+        float dist = length(dc);
+        if (dist > _ShockR0 && dist <= _ShockR1) v.xyz += dc / max(dist, 1e-3) * _ShockStr;
+    }
+
+    // --- forces
+    v.xyz += _UpGrid * (dt * (_Beta * s.y - _Alpha * s.x));
+    // vorticity confinement
+    int3 c = int3(id);
+    int3 mx = int3(int(_Res.x) - 1, int(_Res.y) - 1, int(_Res.z) - 1);
+    float3 gw = float3(_Curl[min(c + int3(1, 0, 0), mx)].w - _Curl[max(c - int3(1, 0, 0), 0)].w,
+                       _Curl[min(c + int3(0, 1, 0), mx)].w - _Curl[max(c - int3(0, 1, 0), 0)].w,
+                       _Curl[min(c + int3(0, 0, 1), mx)].w - _Curl[max(c - int3(0, 0, 1), 0)].w);
+    float gl = length(gw);
+    if (gl > 1e-5) v.xyz += dt * _Vort * _VortScale * _Cell * cross(gw / gl, w.xyz);
+    // large eddies (curl noise), only inside the gas
+    float gas = saturate(s.x * 20.0 + s.y * 5.0);
+    if (_ETurb > 0 && gas > 0) v.xyz += dt * _TurbAmp * _ETurb * gas * MBCurlNoise(p / _TurbSize + float3(0, -_T * 0.4, _T * 0.25));
+    // bore gas past the pressure core frays: strong small-scale swirl on the tagged gas only
+    if (v.w > 0.05 && _TagTurb > 0)
+    {
+        float Lc = max(_EvacCoreLen * _EvacSpdK, 0.3);
+        float past = saturate((pm.x - Lc) / 0.6);
+        v.xyz += dt * _TagTurb * v.w * past * MBCurlNoise(p / 0.35 + float3(-_T * 6.0, _T * 1.3, 0));
+        s.x *= exp(-dt * v.w * past * _TagPastFade);   // once it frays it is gone quickly
+    }
+    // --- ground dust: wind over loose ground above a threshold lifts dust (saltation ~ (u - u*)^2); dust is S.w < 0
+    if (_GroundSolid > 0.5 && _DustPick > 0 && _DustEnv > 0)
+    {
+        float hgt = p.y - _BoxMin.y;
+        if (hgt < _DustLayer)
+        {
+            float u = length(v.xyz - _UpGrid * dot(v.xyz, _UpGrid));
+            float ex = max(u - _DustUT, 0.0);
+            float patchy = 0.4 + 1.2 * MBFbm(p * 0.8 + 61.0);   // loose and packed patches
+            // grows with the excess wind but saturates: there is only so much loose dirt on the surface
+            float add = _DustPick * _DustEnv * saturate(ex / 15.0) * patchy * dt * (1.0 - hgt / _DustLayer);
+            if (add > 0)
+            {
+                float k = add / (s.x + add);
+                s.w = lerp(s.w, -1.0, k);
+                s.x += add;
+                r.w = lerp(r.w, MBNoise(p * 1.7 + 3.0), k);
+                v.xyz += _UpGrid * (ex * 0.25 * k);   // grains bounce up out of the surface
+            }
+        }
+    }
+    // dust is heavier than smoke: it sinks back slowly
+    v.xyz -= _UpGrid * (dt * _DustFall * saturate(-s.w));
+    // turbulent drag of fast gas, and a weak pull towards the wind
+    float sp = length(v.xyz);
+    v.xyz /= (1.0 + dt * _Drag * sp);
+    // wind with gusts: a slowly evolving large-scale swirl carried along with the wind
+    float3 gust = _GustAmp * MBCurlNoise((p - _Wind * _T) / _GustSize + float3(0, _T * 0.15, 0)) * 0.35;
+    v.xyz += dt * _WindCouple * (_Wind + gust - v.xyz);
+
+    if (SolidAt(int3(id))) { v.xyz = 0; s.x = 0; s.z = 0; }
+    _VRW[id] = v; _SRW[id] = s; _RRW[id] = r;
+}
+
+[numthreads(8, 8, 8)]
+void Divergence(uint3 id : SV_DispatchThreadID)
+{
+    int3 c = int3(id);
+    float3 vc = _V[c].xyz;
+    float3 vxp = Inside(c + int3(1, 0, 0)) ? _V[c + int3(1, 0, 0)].xyz : vc;
+    float3 vxm = Inside(c - int3(1, 0, 0)) ? _V[c - int3(1, 0, 0)].xyz : vc;
+    float3 vyp = Inside(c + int3(0, 1, 0)) ? _V[c + int3(0, 1, 0)].xyz : vc;
+    float3 vym = c.y > 0 ? _V[c - int3(0, 1, 0)].xyz : (_GroundSolid > 0.5 ? float3(0, 0, 0) : vc);    // ground: solid
+    float3 vzp = Inside(c + int3(0, 0, 1)) ? _V[c + int3(0, 0, 1)].xyz : vc;
+    float3 vzm = Inside(c - int3(0, 0, 1)) ? _V[c - int3(0, 0, 1)].xyz : vc;
+    if (SolidAt(c + int3(1, 0, 0))) vxp = 0; if (SolidAt(c - int3(1, 0, 0))) vxm = 0;   // the tank: walls
+    if (SolidAt(c + int3(0, 1, 0))) vyp = 0; if (SolidAt(c - int3(0, 1, 0))) vym = 0;
+    if (SolidAt(c + int3(0, 0, 1))) vzp = 0; if (SolidAt(c - int3(0, 0, 1))) vzm = 0;
+    float div = (vxp.x - vxm.x + vyp.y - vym.y + vzp.z - vzm.z) * (0.5 / _Cell);
+    _DivOut[id] = div - _ExpRW[id];
+}
+
+[numthreads(8, 8, 8)]
+void Jacobi(uint3 id : SV_DispatchThreadID)
+{
+    int3 c = int3(id);
+    float pc = _P[c];
+    float pxp = Inside(c + int3(1, 0, 0)) ? _P[c + int3(1, 0, 0)] : 0;   // open sides: p = 0
+    float pxm = Inside(c - int3(1, 0, 0)) ? _P[c - int3(1, 0, 0)] : 0;
+    float pyp = Inside(c + int3(0, 1, 0)) ? _P[c + int3(0, 1, 0)] : 0;
+    float pym = c.y > 0 ? _P[c - int3(0, 1, 0)] : (_GroundSolid > 0.5 ? pc : 0);                   // ground: dp/dn = 0
+    float pzp = Inside(c + int3(0, 0, 1)) ? _P[c + int3(0, 0, 1)] : 0;
+    float pzm = Inside(c - int3(0, 0, 1)) ? _P[c - int3(0, 0, 1)] : 0;
+    if (SolidAt(c + int3(1, 0, 0))) pxp = pc; if (SolidAt(c - int3(1, 0, 0))) pxm = pc;
+    if (SolidAt(c + int3(0, 1, 0))) pyp = pc; if (SolidAt(c - int3(0, 1, 0))) pym = pc;
+    if (SolidAt(c + int3(0, 0, 1))) pzp = pc; if (SolidAt(c - int3(0, 0, 1))) pzm = pc;
+    _POut[id] = (pxp + pxm + pyp + pym + pzp + pzm - _Div[c] * _Cell * _Cell) / 6.0;
+}
+
+[numthreads(8, 8, 8)]
+void Project(uint3 id : SV_DispatchThreadID)
+{
+    int3 c = int3(id);
+    float pc = _P[c];
+    float pxp = Inside(c + int3(1, 0, 0)) ? _P[c + int3(1, 0, 0)] : 0;
+    float pxm = Inside(c - int3(1, 0, 0)) ? _P[c - int3(1, 0, 0)] : 0;
+    float pyp = Inside(c + int3(0, 1, 0)) ? _P[c + int3(0, 1, 0)] : 0;
+    float pym = c.y > 0 ? _P[c - int3(0, 1, 0)] : (_GroundSolid > 0.5 ? pc : 0);
+    float pzp = Inside(c + int3(0, 0, 1)) ? _P[c + int3(0, 0, 1)] : 0;
+    float pzm = Inside(c - int3(0, 0, 1)) ? _P[c - int3(0, 0, 1)] : 0;
+    if (SolidAt(c + int3(1, 0, 0))) pxp = pc; if (SolidAt(c - int3(1, 0, 0))) pxm = pc;
+    if (SolidAt(c + int3(0, 1, 0))) pyp = pc; if (SolidAt(c - int3(0, 1, 0))) pym = pc;
+    if (SolidAt(c + int3(0, 0, 1))) pzp = pc; if (SolidAt(c - int3(0, 0, 1))) pzm = pc;
+    float4 v = _VRW[id];
+    v.xyz -= float3(pxp - pxm, pyp - pym, pzp - pzm) * (0.5 / _Cell);
+    if (SolidAt(c)) v.xyz = 0;
+    if (c.y == 0 && _GroundSolid > 0.5) v.y = max(v.y, 0);
+    _VRW[id] = v;
+}
+
+// semi-Lagrangian step back (writes the "hat" fields)
+[numthreads(8, 8, 8)]
+void AdvectSL(uint3 id : SV_DispatchThreadID)
+{
+    float3 vel = _V[id].xyz;
+    float3 back = ToUVW(float3(id) + 0.5 - vel * _Dt / _Cell);
+    _VOut[id] = _V.SampleLevel(mb_linear_clamp_sampler, back, 0);
+    _SOut[id] = _S.SampleLevel(mb_linear_clamp_sampler, back, 0);
+    _ROut[id] = _R.SampleLevel(mb_linear_clamp_sampler, back, 0);
+}
+
+void MinMax(Texture3D<float4> t, float3 cc, out float4 mn, out float4 mx)
+{
+    int3 b = int3(floor(cc - 0.5));
+    int3 hi = int3(_Res) - 1;
+    mn = 1e9; mx = -1e9;
+    [unroll] for (int i = 0; i < 8; i++)
+    {
+        int3 o = int3(i & 1, (i >> 1) & 1, (i >> 2) & 1);
+        float4 x = t[clamp(b + o, 0, hi)];
+        mn = min(mn, x); mx = max(mx, x);
+    }
+}
+
+// MacCormack correction with clamping (keeps the curls the plain step would smear)
+[numthreads(8, 8, 8)]
+void AdvectMC(uint3 id : SV_DispatchThreadID)
+{
+    float3 vel = _V[id].xyz;
+    float3 cc = float3(id) + 0.5;
+    float3 fwd = ToUVW(cc + vel * _Dt / _Cell);
+    float3 backc = cc - vel * _Dt / _Cell;
+    float4 mn, mx;
+
+    float4 bar = _VHat.SampleLevel(mb_linear_clamp_sampler, fwd, 0);
+    float4 o = _VHat[id] + 0.5 * _MCW * (_V[id] - bar);
+    MinMax(_V, backc, mn, mx); _VOut[id] = clamp(o, mn, mx);
+
+    bar = _SHat.SampleLevel(mb_linear_clamp_sampler, fwd, 0);
+    o = _SHat[id] + 0.5 * _MCW * (_S[id] - bar);
+    MinMax(_S, backc, mn, mx); _SOut[id] = clamp(o, mn, mx);
+
+    bar = _RHat.SampleLevel(mb_linear_clamp_sampler, fwd, 0);
+    o = _RHat[id] + 0.5 * _MCW * (_R[id] - bar);
+    MinMax(_R, backc, mn, mx); _ROut[id] = clamp(o, mn, mx);
+}
+
+// sun transmittance (x) and sky visibility (y) per cell, for the raymarcher
+[numthreads(8, 8, 8)]
+void Light(uint3 id : SV_DispatchThreadID)
+{
+    float3 cc = float3(id) + 0.5;
+    float tau = 0;
+    float3 pc = cc;
+    [loop] for (int i = 0; i < 96; i++)
+    {
+        pc += _SunDirGrid * 1.0;
+        if (any(pc < 0) || any(pc > float3(_Res))) break;
+        float d = _S.SampleLevel(mb_linear_clamp_sampler, ToUVW(pc), 0).x;
+        tau += _SigmaK * pow(max(d, 0), _Gamma) * _Cell;
+    }
+    float tauUp = 0;
+    pc = cc;
+    [loop] for (int j = 0; j < 16; j++)
+    {
+        pc += float3(0.35, 1.0, 0.0) * 1.5;
+        if (any(pc < 0) || any(pc > float3(_Res))) break;
+        float d = _S.SampleLevel(mb_linear_clamp_sampler, ToUVW(pc), 0).x;
+        tauUp += _SigmaK * pow(max(d, 0), _Gamma) * _Cell * 1.5;
+    }
+    _LightOut[id] = float2(exp(-tau), exp(-0.5 * tauUp));
+}
+
+// Handoff: gas in the muzzle grid that is slow (|v| < _SlowSpeed) or near its faces moves to the coarse grid
+// (mass is moved, not copied: Handoff adds it to the coarse grid, HandoffB removes it from the fine one), so the fine
+// grid only holds the young, fast jet / evacuator stream and its box never shows.
+float _SlowSpeed, _HandoffRate, _HOBack, _HOBottom;   // which faces hand gas over (back = behind the muzzle, bottom)
+
+float HandoffFraction(float3 u, float3 vel, float dt)
+{
+    float3 dlo = u * _B2Size, dhi = (1 - u) * _B2Size;
+    float dist = min(min(dlo.z, min(dhi.x, dhi.y)), dhi.z);
+    if (_HOBack > 0.5) dist = min(dist, dlo.x);
+    if (_HOBottom > 0.5) dist = min(dist, dlo.y);
+    float wShell = saturate(1.0 - dist / _HandoffWidth);
+    float wSlow = saturate(1.0 - length(vel) / _SlowSpeed);
+    return max(wShell, wSlow) * (1.0 - exp(-dt * _HandoffRate));
+}
+
+[numthreads(8, 8, 8)]
+void Handoff(uint3 id : SV_DispatchThreadID)   // runs on the coarse grid
+{
+    float3 p = CellPos(id);
+    float3 u = (mul(_DstToSrc, float4(p, 1)).xyz - _B2Min) / _B2Size;
+    if (any(u < 0) || any(u > 1)) return;
+    float4 sB = _S2.SampleLevel(mb_linear_clamp_sampler, u, 0);
+    if (sB.x < 1e-5) return;
+    float4 vB = _V2.SampleLevel(mb_linear_clamp_sampler, u, 0);
+    vB.xyz = mul((float3x3)_SrcToDst, vB.xyz);
+    float f = HandoffFraction(u, vB.xyz, _Dt);
+    float add = sB.x * f;
+    if (add <= 1e-6) return;
+    float4 s = _SRW[id];
+    float k = add / (s.x + add);
+    float4 rB = _R2.SampleLevel(mb_linear_clamp_sampler, u, 0);
+    rB.xyz = mul(_SrcToDst, float4(rB.xyz, 1)).xyz;
+    s.y = lerp(s.y, sB.y, k);
+    s.w = lerp(s.w, sB.w, k);
+    s.x += add;
+    _SRW[id] = s;
+    _VRW[id] = lerp(_VRW[id], vB, k);
+    _RRW[id] = lerp(_RRW[id], rB, k);
+}
+
+[numthreads(8, 8, 8)]
+void HandoffB(uint3 id : SV_DispatchThreadID)   // runs on the fine grid
+{
+    float3 u = (float3(id) + 0.5) / float3(_Res);
+    float4 s = _SRW[id];
+    if (s.x < 1e-6) return;
+    float f = HandoffFraction(u, _VRW[id].xyz, _Dt);
+    s.x *= 1.0 - f;
+    _SRW[id] = s;
+}
+
+// ---------------------------------------------------------------- fire light
+// The fireball lights its own smoke: the flame emission is gathered on a 4x coarser grid and blurred (~1.5 m);
+// the raymarcher adds it as in-scattered light (radiance units: next to a big fire ball the blurred field is about
+// the average radiance the smoke sees).
+uint3 _FLRes;
+int _FLScale, _BlurR;
+int3 _BlurAxis;
+float _HeatRange, _FlameRad, _BlurSigma, _EmitPow;
+RWTexture3D<float4> _FLOut;
+Texture3D<float4> _FLIn;
+
+float3 MBBlackbodyC(float h)
+{
+    const float3 c0 = float3(1.0, 0.08, 0.0), c1 = float3(1.0, 0.26, 0.0), c2 = float3(1.0, 0.48, 0.03);
+    const float3 c3 = float3(1.0, 0.70, 0.10), c4 = float3(1.0, 0.88, 0.42);
+    h = saturate(h) * 4.0;
+    if (h < 1.0) return lerp(c0, c1, h);
+    if (h < 2.0) return lerp(c1, c2, h - 1.0);
+    if (h < 3.0) return lerp(c2, c3, h - 2.0);
+    return lerp(c3, c4, h - 3.0);
+}
+
+[numthreads(4, 4, 4)]
+void FireDown(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= _FLRes)) return;
+    int3 base = int3(id) * _FLScale;
+    int3 hi = int3(_Res) - 1;
+    float3 sum = 0;
+    for (int z = 0; z < _FLScale; z++)
+        for (int y = 0; y < _FLScale; y++)
+            for (int x = 0; x < _FLScale; x++)
+            {
+                float t = _S[min(base + int3(x, y, z), hi)].y;
+                float h = saturate((t - 0.7) / _HeatRange);
+                sum += MBBlackbodyC(h) * pow(h, _EmitPow);
+            }
+    _FLOut[id] = float4(sum / (float)(_FLScale * _FLScale * _FLScale) * _FlameRad, 0);
+}
+
+[numthreads(4, 4, 4)]
+void FireBlur(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= _FLRes)) return;
+    float3 acc = 0;
+    float wsum = 0;
+    for (int i = -_BlurR; i <= _BlurR; i++)
+    {
+        float w = exp(-(i * i) / (2.0 * _BlurSigma * _BlurSigma));
+        int3 c = int3(id) + _BlurAxis * i;
+        wsum += w;
+        if (any(c < 0) || any(c >= int3(_FLRes))) continue;   // outside: no fire
+        acc += _FLIn[c].rgb * w;
+    }
+    _FLOut[id] = float4(acc / wsum, 0);
+}
+
+// ---------------------------------------------------------------- the tank in the air
+// Oriented boxes (renderer bounds of hull, turret, gun, barrel, tracks...) -> solid cells. Rebuilt every frame, so the
+// recoiling barrel and a traversing turret push the gas around.
+StructuredBuffer<float4x4> _Boxes;   // grid space -> unit box [-0.5, 0.5]^3
+int _BoxCount;
+RWTexture3D<float> _SolidOut;
+
+[numthreads(8, 8, 8)]
+void SolidMask(uint3 id : SV_DispatchThreadID)
+{
+    float3 p = CellPos(id);
+    float solid = 0;
+    for (int i = 0; i < _BoxCount; i++)
+    {
+        float3 u = mul(_Boxes[i], float4(p, 1)).xyz;
+        if (all(abs(u) <= 0.5)) { solid = 1; break; }
+    }
+    _SolidOut[id] = solid;
+}
+
+// Dust lying on the tank: when the blast wave sweeps over a surface point it lifts the dust there and keeps shedding it
+// for a moment; it is thrown away from the muzzle (so back along the hull) and up.
+StructuredBuffer<float4> _SurfPos;   // xyz grid space, w amount
+StructuredBuffer<float4> _SurfNrm;   // xyz normal (grid space), w random 0..1
+int _SurfCount;
+float _SurfDust, _SurfShed, _SurfSpeed, _ShockT0;
+
+float ShockArrival(float d)   // invert R(t) = 340 (t + 0.0015) + 3 (1 - exp(-(t + 0.0015) / 0.004)) for the time the wave reaches d
+{
+    float t = d / 340.0;
+    [unroll] for (int i = 0; i < 6; i++)
+    {
+        float tt = t + 0.0015;
+        float f = 340.0 * tt + 3.0 * (1.0 - exp(-tt / 0.004)) - d;
+        float df = 340.0 + 750.0 * exp(-tt / 0.004);
+        t -= f / df;
+    }
+    return t;
+}
+
+[numthreads(64, 1, 1)]
+void SurfaceDust(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _SurfCount) return;
+    float4 sp = _SurfPos[id.x];
+    float4 sn = _SurfNrm[id.x];
+    float3 dc = sp.xyz - _ShockC;
+    float d = length(dc);
+    float ta = ShockArrival(d) + sn.w * 0.01;
+    float age = _T - ta;
+    if (age < 0 || age > 0.25) return;
+    float3 pos = sp.xyz + sn.xyz * (_Cell * 1.2);
+    int3 c = int3(floor((pos - _BoxMin) / _Cell));
+    if (!Inside(c)) return;
+    float strength = 1.0 / (1.0 + 0.35 * d);
+    float amount = _SurfDust * sp.w * strength * exp(-age / _SurfShed) * _Dt / _SurfShed;
+    float3 away = normalize(float3(dc.x, 0, dc.z) + 1e-4);
+    float3 vel = away * (_SurfSpeed * strength * (0.6 + 0.8 * sn.w)) + sn.xyz * 2.5 + _UpGrid * 1.5;
+    float4 s = _SRW[c];
+    float k = amount / (s.x + amount + 1e-6);
+    s.x += amount;
+    s.w = lerp(s.w, -1.0, k);
+    _SRW[c] = s;
+    float4 v = _VRW[c];
+    v.xyz = lerp(v.xyz, vel, saturate(k * 2.0));
+    _VRW[c] = v;
+    float4 r = _RRW[c];
+    r.w = lerp(r.w, sn.w, k);
+    _RRW[c] = r;
+}

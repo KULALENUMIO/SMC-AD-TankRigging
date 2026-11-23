@@ -109,6 +109,12 @@ namespace TankRig
         [Tooltip("組み込みのエフェクト（発砲炎・煙・光・曳光弾・着弾・排気煙）を使う。別のエフェクト（GunFired / RoundFired を使うもの）に任せるときはオフ")]
         public bool builtInEffects = true;
         public ParticleSystem[] exhaustSmoke = new ParticleSystem[0];
+        /// <summary>Set by a replacement effect (TankFx): the built-in machine-gun / secondary-gun flashes stay off. Not serialized.</summary>
+        [System.NonSerialized] public bool externalGunFlashes;
+        /// <summary>Set by a replacement effect (TankFx): the built-in exhaust smoke stays off. Not serialized.</summary>
+        [System.NonSerialized] public bool externalExhaust;
+        /// <summary>Set by a replacement effect (TankFx): the built-in main-gun flash, smoke and light stay off. Not serialized.</summary>
+        [System.NonSerialized] public bool externalMainGun;
         public ParticleSystem muzzleFlash;
         public ParticleSystem muzzleSmoke;
         [HideInInspector] public ParticleSystem machineGunTracer;
@@ -124,6 +130,9 @@ namespace TankRig
 
         [Header("カメラ")]
         public TankCamera aimCamera;
+
+        /// <summary>Overrides where the turret and gun aim (sights). Not serialized; set at run time.</summary>
+        [System.NonSerialized] public ITankAimSource aimSource;
 
         [Header("外部入力（AI・ネットワーク・テスト用）")]
         [Tooltip("オンにするとキーボード・マウスの代わりに externalInput で操縦する")] public bool useExternalInput;
@@ -360,7 +369,8 @@ namespace TankRig
         {
             float mass = rb.mass;
             float g = -Physics.gravity.y;
-            Quaternion rot = rb.rotation;
+            // normalized: after hard impulses PhysX can hand back a rotation slightly off unit length, which TRS rejects
+            Quaternion rot = rb.rotation.normalized;
             Vector3 up = rot * Vector3.up;
             var rootToWorld = Matrix4x4.TRS(rb.position, rot, Vector3.one);
             float engine = maxTractiveEffort * mass * g * 0.5f; // per side
@@ -740,7 +750,9 @@ namespace TankRig
 
         void Aim(float dt)
         {
-            if (useExternalInput || !aimCamera)
+            if (!useExternalInput && aimSource != null && aimSource.HasAim)
+                AimPoint = aimSource.AimPoint;
+            else if (useExternalInput || !aimCamera)
                 AimPoint = externalAimPoint != Vector3.zero ? externalAimPoint : transform.position + transform.forward * 100f;
             else
                 AimPoint = aimCamera.AimPoint;
@@ -802,8 +814,8 @@ namespace TankRig
             float p = Mathf.Max(0f, gunPower);
             if (barrel) recoil = Mathf.Min(recoilDistance * p, maxRecoilDistance);
             flash = Mathf.Min(1f + 0.3f * (p - 1f), 2f);
-            if (builtInEffects && muzzleFlash) muzzleFlash.Play(true);
-            if (builtInEffects && muzzleSmoke) muzzleSmoke.Play(true);
+            if (builtInEffects && !externalMainGun && muzzleFlash) muzzleFlash.Play(true);
+            if (builtInEffects && !externalMainGun && muzzleSmoke) muzzleSmoke.Play(true);
             if (aimCamera) aimCamera.Shake(0.4f * p);
             Transform m = muzzle ? muzzle : gun ? gun : transform;
             Kick(m, p);
@@ -849,12 +861,12 @@ namespace TankRig
         void UpdateEffects(TankInputState input, float dt)
         {
             flash = Mathf.MoveTowards(flash, 0f, dt * 10f);
-            if (muzzleLight) muzzleLight.intensity = builtInEffects ? flash * muzzleLightIntensity : 0f;
+            if (muzzleLight) muzzleLight.intensity = builtInEffects && !externalMainGun ? flash * muzzleLightIntensity : 0f;
             foreach (var st in secondaryTurrets)
             {
                 if (st == null) continue;
                 st.flash = Mathf.MoveTowards(st.flash, 0f, dt * 10f);
-                if (st.muzzleLight) st.muzzleLight.intensity = st.flash * muzzleLightIntensity * 0.6f;
+                if (st.muzzleLight) st.muzzleLight.intensity = externalGunFlashes ? 0f : st.flash * muzzleLightIntensity * 0.6f;
             }
 
             float load = Mathf.Clamp01(Mathf.Abs(input.throttle) * 0.6f + Mathf.Abs(Speed) / Mathf.Max(0.1f, maxForwardSpeed) * 0.4f);
@@ -863,7 +875,7 @@ namespace TankRig
                 {
                     if (!ps) continue;
                     var em = ps.emission;
-                    em.rateOverTime = builtInEffects ? Mathf.Lerp(exhaustIdleRate, exhaustMaxRate, load) : 0f;
+                    em.rateOverTime = builtInEffects && !externalExhaust ? Mathf.Lerp(exhaustIdleRate, exhaustMaxRate, load) : 0f;
                 }
 
             if (input.toggleLights) SetLights(!lightsOn);

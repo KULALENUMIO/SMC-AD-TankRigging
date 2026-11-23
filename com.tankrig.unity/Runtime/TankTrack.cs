@@ -105,6 +105,14 @@ namespace TankRig
         /// <summary>Largest sag of the top run right now, local units.</summary>
         public float CurrentSag { get; private set; }
         public int LinkCount => links.Count;
+        /// <summary>The belt's pitch line in the track's frame (x along forwardLocal, y along upLocal), local units. Rebuilt as the suspension moves; read-only.</summary>
+        public IReadOnlyList<Vector2> PathPoints => path;
+        /// <summary>Distance along the pitch line at each PathPoints entry (same count), local units.</summary>
+        public IReadOnlyList<float> PathDistances => cumulative;
+        /// <summary>Where the links sit along axleLocal, local units.</summary>
+        public float LinkDepth => depth;
+        /// <summary>How far the links have run round the belt (local units, wraps at PathLength).</summary>
+        public float BeltTravel => offset;
 
         void OnEnable() => Rebuild();
 

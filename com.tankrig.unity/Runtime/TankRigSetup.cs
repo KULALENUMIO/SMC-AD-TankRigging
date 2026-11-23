@@ -68,6 +68,7 @@ namespace TankRig
 
         [Header("物理演算")]
         [Tooltip("車体を物理演算で動かす（履帯は描画だけ）")] public bool physicsDrive = true;
+        [Tooltip("リアルなエフェクト（機銃・副砲の発砲、排気、土煙、履帯の巻き込み）を付ける。主砲は従来のエフェクト")] public bool realisticEffects = true;
         [Tooltip("車重（トン）")] public float massTons = 40f;
         [Tooltip("車体の当たり判定に使うメッシュ（「戦車を完成させる」で作られるアセット）")] public Mesh hullColliderMesh;
 

@@ -76,6 +76,22 @@ SMC-AD で取り込んだ戦車モデルに、同梱の履帯（転輪一式 + �
 
 画面中央の十字が照準、四角が主砲の実際の向き（緑 = 装填完了）、小さな十字が副砲塔の向きです。左下に装填・弾数が出ます。
 
+### 照準器（V で切り替え）
+
+三人称 → 直接照準器（光学）→ デジタル射撃画面（ディスプレイ）→ 全周ゴーグル（VR）→ 三人称 の順に切り替わります。照準器の中では次のキーも使えます。
+
+| キー | 働き |
+|---|---|
+| ホイール | 倍率・視野 |
+| R | レーザー測距 |
+| 1〜4 | 弾種 |
+| N | 照明（光学） |
+| T | サーマル / 昼間（ディスプレイ） |
+| B | 白黒反転（ディスプレイ） |
+| G | 目標の指定・解除（ゴーグル） |
+
+倍率・視野・解像度・縦横比・目盛り・色などの数値は、すべてプロファイル（Assets > Create > Tank Rig > 照準器）で変えられます。詳しい説明と、既定値の根拠にした資料は [Documentation~/Sights.md](Documentation~/Sights.md) にあります。
+
 ## 仕組み
 
 - `TankController`（物理モード）… **車体だけ**を Rigidbody で動かします。
@@ -97,6 +113,13 @@ SMC-AD で取り込んだ戦車モデルに、同梱の履帯（転輪一式 + �
   履帯の長さは一定で、余った分は上側のスパンのたわみになります。リンクは保存されず、毎回生成されます（エディタでもプレビュー）。
 - `TankCamera` … War Thunder 風の三人称カメラと HUD。自分の当たり判定は無視します。
 - 別のエフェクトを付けるためのフック: `TankController.GunFired`（主砲・副砲の発砲。砲口・火力・当たった位置）、`RoundFired`（機銃 1 発ごと。向き・性能・曳光弾か・当たった位置）、`CurrentInput`（今の入力）。`builtInEffects` をオフにすると組み込みのエフェクト（発砲炎・煙・光・曳光弾・着弾・排気煙）を止めます。
+- `TankFx`（リアルなエフェクト）… 機銃・副砲の発砲（口径で大きさ）、排気、土煙と土塊、履帯の巻き込み、主砲の発砲を、組み込みのパーティクルの代わりに出します。
+  ビルダーの「リアルなエフェクト」（既定オン）で付き、既存の戦車には Tools > Tank Rig > リアルなエフェクトを付ける。`gunFlashes` / `exhaust` / `dust` / `trackSpill` で個別にオン / オフ、細かい数値は `TankExhaustFX` / `TankDustFX` / `TankTrackSpillFX` と、撃った砲口に付く `GunFlashFX` にあります。
+  粒子は CPU で動かし、HDRP のカスタムパス 1 つ（`GunFlashPass`、シーンの「Tank Rig FX Pass」）で描きます。何にも当たりません。
+  煙と土煙は地面・戦車・互いに影を落とし（`particleShadows`）、排気と炎の後ろは陽炎で揺れます（`heatHaze`）。
+  主砲（`mainGunBlast`、口径 `mainGunCaliberMm`）: 既定はシミュレーションから焼いたフリップブックの軽いパーティクル（`MainGunFX`: 炎・火球・砲口の煙・土煙・衝撃の土煙・小石。負荷はほぼゼロ）。
+  重いもの（プレイ中に作る）: `mainGunSimulation`（撮影用: 主砲の爆風を GPU で計算、小石 `gravel`、品質 `blastQuality` 0〜2、既定 2 = 低。プレイ中は `SetMainGunSimulation(true)`）、`ruts`（地面が実際にへこむ轍。地面は 1〜2 m 程度に細かいメッシュの HDRP/Lit か Unity Terrain）。
+  撮影用には `mainGunSimulation` + `blastQuality` 0（高）と `dustAmount` 1 がおすすめ。轍の地面シェーダーはプロジェクトの HDRP から自動で作られます（Tools > Tank Rig > 轍の地面シェーダーを作る）。
 - `useExternalInput` + `externalInput` で AI やネットワークからも操縦できます（`holdMain` = 左ボタン押しっぱなし、`fireSecondary` = 副武装）。`Teleport()` でリスポーン。
 
 ## 前提・制限

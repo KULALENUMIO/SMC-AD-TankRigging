@@ -675,6 +675,14 @@ namespace TankRig.Editor
                 EditorGUILayout.HelpBox("物理演算の走行は転輪のサスペンションで車体を押すので、履帯がない・サスペンションを使わないときは自動で「物理なし」になります。", MessageType.Warning);
 
             EditorGUI.BeginChangeCheck();
+            bool realFx = EditorGUILayout.Toggle(new GUIContent("リアルなエフェクト", "機銃・副砲の発砲（口径で大きさが決まる）、排気、土煙と土塊、履帯の巻き込みを写実的なものにします。主砲は従来のエフェクトのまま。完成後も Tank FX で個別にオン / オフできます"), setup.realisticEffects);
+            if (EditorGUI.EndChangeCheck())
+            {
+                Undo.RecordObject(setup, "エフェクトの設定");
+                setup.realisticEffects = realFx;
+            }
+
+            EditorGUI.BeginChangeCheck();
             SubHeader("走行");
             float maxSpeed = EditorGUILayout.Slider("最高速度（km/h）", setup.maxSpeedKmh, 5f, 120f);
             float rev = EditorGUILayout.Slider("後退速度（km/h）", setup.reverseSpeedKmh, 2f, 60f);

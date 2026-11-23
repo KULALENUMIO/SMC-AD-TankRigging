@@ -63,6 +63,14 @@ namespace TankRig
 
         public void Shake(float amount) => shake = Mathf.Max(shake, amount);
 
+        /// <summary>Turn the orbit so the camera looks along <paramref name="dir"/> (e.g. after leaving a sight).</summary>
+        public void LookAlong(Vector3 dir)
+        {
+            if (dir.sqrMagnitude < 1e-6f) return;
+            yaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+            pitch = Mathf.Clamp(-Mathf.Asin(Mathf.Clamp(dir.normalized.y, -1f, 1f)) * Mathf.Rad2Deg + 8f, minPitch, maxPitch);
+        }
+
         void LateUpdate()
         {
             if (!target) return;
@@ -167,7 +175,8 @@ namespace TankRig
                     GUI.Label(new Rect(16, line, 400, 22), $"{mg.name}: {BeltText(mg.Feed, mg.spec)}");
                 }
             GUI.Label(new Rect(16, line - 22, 400, 22), $"速度 {target.Speed * 3.6f:0} km/h");
-            GUI.Label(new Rect(16, 12, 1100, 22), "W/S: 前進・後退   A/D: 旋回   マウス: 照準   左クリック: 主砲   Space: 機銃   中クリック/F: 副武装   右クリック: ズーム   ホイール: 距離   L: ライト   Esc: カーソル解放");
+            GUI.Label(new Rect(16, 12, 1200, 22), "W/S: 前進・後退   A/D: 旋回   マウス: 照準   左クリック: 主砲   Space: 機銃   中クリック/F: 副武装   右クリック: ズーム   ホイール: 距離   L: ライト   "
+                + (GetComponent<Sights.TankSightRig>() ? "V: 照準器   " : "") + "Esc: カーソル解放");
         }
     }
 }

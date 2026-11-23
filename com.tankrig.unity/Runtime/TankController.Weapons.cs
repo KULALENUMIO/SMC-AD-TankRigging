@@ -132,8 +132,8 @@ namespace TankRig
             if (st == null || !st.muzzle) return;
             st.OnFired(recoilDistance, maxRecoilDistance);
             float p = Mathf.Max(0f, st.power);
-            if (builtInEffects && st.muzzleFlash) st.muzzleFlash.Play(true);
-            if (builtInEffects && st.muzzleSmoke) st.muzzleSmoke.Play(true);
+            if (builtInEffects && !externalGunFlashes && st.muzzleFlash) st.muzzleFlash.Play(true);
+            if (builtInEffects && !externalGunFlashes && st.muzzleSmoke) st.muzzleSmoke.Play(true);
             if (aimCamera) aimCamera.Shake(0.4f * p);
             Kick(st.muzzle, p);
             float fx = Mathf.Clamp(p, 0.2f, 1f);
@@ -163,7 +163,7 @@ namespace TankRig
                 };
                 tracer.Emit(ep, 1);
             }
-            if (builtInEffects && flashFx) flashFx.Emit(1);
+            if (builtInEffects && !externalGunFlashes && flashFx) flashFx.Emit(1);
             bool didHit = TankPhysics.Raycast(p.position, dir, spec.range, groundMask, transform, out RaycastHit hit);
             if (didHit && builtInEffects)
             {

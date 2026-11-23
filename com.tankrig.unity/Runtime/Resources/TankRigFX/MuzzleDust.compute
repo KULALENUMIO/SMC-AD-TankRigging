@@ -1,0 +1,227 @@
+// Firing dust, separate from the smoke (the two never mix: dust is not drawn into the smoke, and smoke does not push
+// the dust). Two kinds, both released when the blast wave reaches them:
+//   ground dust - from the ground around and under the muzzle, thrown out radially from under the muzzle, low
+//   hull dust   - from the tank's upper surfaces, thrown back (away from the gun) and up
+// Each cell: D = (x fine dust, y coarse dust, z -, w seed),  U = (xyz dust velocity m/s, w -).
+// No pressure solve: the dust keeps the momentum it was thrown with, loses it to air drag, rides the wind and gusts,
+// and settles (coarse grains fast, fine dust slowly). The tank's solid mask deflects it.
+#pragma kernel DClear
+#pragma kernel DGround
+#pragma kernel DSurface
+#pragma kernel DForces
+#pragma kernel DAdvect
+#pragma kernel DLight
+
+#include "MBNoise.hlsl"
+
+uint3 _Res;
+float _Cell, _Dt, _T;
+float3 _BoxMin;
+float3 _UpGrid, _Wind;
+float3 _ShockC;          // blast centre (grid space)
+float3 _Under;           // ground point under the muzzle (grid space)
+float3 _Back;            // flat direction away from the gun (grid space, unit)
+float _GustAmp, _GustSize;
+
+Texture3D<float4> _D, _U;
+RWTexture3D<float4> _DOut, _UOut, _DRW, _URW;
+RWTexture3D<float2> _LightOut;
+Texture3D<float> _Solid;
+float _UseSolid;
+SamplerState mb_linear_clamp_sampler;
+
+// ground dust
+float _GAmount, _GRadius, _GSpeed, _GLift, _GWindow, _GCoarse;
+float _GTime, _HTime;   // ground / hull dust in their own time (effect controls: delay, duration)
+// hull dust
+StructuredBuffer<float4> _SurfPos;   // xyz grid space, w amount weight
+StructuredBuffer<float4> _SurfNrm;   // xyz normal (grid space), w random 0..1
+int _SurfCount;
+float _HAmount, _HSpeed, _HLift, _HWindow;
+// motion
+float _BackWind, _BackReach, _HullDrag, _BackMax;   // blast-driven back-blow behind the muzzle (m/s now), how far back it reaches, drag of hull dust
+float _KickUp;
+float _DragFine, _DragCoarse, _FallFine, _FallCoarse, _TurbAmp, _TurbSize, _TauFine, _LateFade;
+float _Spread;          // 1: empty cells take their neighbours' velocity (the dust can leave the layer it was thrown from)
+float _SigmaK;
+float3 _SunDirGrid;
+
+float3 CellPos(uint3 id) { return _BoxMin + (float3(id) + 0.5) * _Cell; }
+bool Inside(int3 c) { return all(c >= 0) && all(c < int3(_Res)); }
+bool SolidAt(int3 c) { return _UseSolid > 0.5 && Inside(c) && _Solid[c] > 0.5; }
+
+float ShockArrival(float d)   // time the blast wave reaches distance d (inverts R(t) of the smoke solver)
+{
+    float t = d / 340.0;
+    [unroll] for (int i = 0; i < 6; i++)
+    {
+        float tt = t + 0.0015;
+        float f = 340.0 * tt + 3.0 * (1.0 - exp(-tt / 0.004)) - d;
+        float df = 340.0 + 750.0 * exp(-tt / 0.004);
+        t -= f / df;
+    }
+    return t;
+}
+
+[numthreads(8, 8, 8)]
+void DClear(uint3 id : SV_DispatchThreadID) { _DOut[id] = 0; _UOut[id] = 0; }
+
+// ground: a thin layer over the ground; released as the wave passes, for a short window, strongest under the muzzle
+[numthreads(8, 8, 8)]
+void DGround(uint3 id : SV_DispatchThreadID)
+{
+    float3 p = CellPos(id);
+    float hgt = p.y - _BoxMin.y;
+    if (hgt > 0.6) return;
+    float2 off = p.xz - _Under.xz;
+    float r = length(off);
+    if (r > _GRadius) return;
+    float d = length(p - _ShockC);
+    float age = _GTime - ShockArrival(d);
+    if (age < 0 || age > _GWindow) return;
+    float strength = saturate(1.0 - r / _GRadius);
+    strength = strength * strength * (0.35 + 0.65 * strength);   // most of it around the tank and under the gun, thin further out
+    // clumps, not a carpet: loose patches throw dust, packed ground hardly any
+    float patchy = smoothstep(0.42, 0.72, MBFbm(p * 0.8 + 61.0)) * 1.6 + 0.08;
+    float rate = _GAmount * strength * patchy * (1.0 - hgt / 0.6) / _GWindow;
+    float add = rate * _Dt;
+    float2 dir = off / max(r, 0.3);
+    // lobes: some directions are thrown much harder than others (no clean ring)
+    float lobe = 0.35 + 1.3 * MBNoise(float3(dir * 2.2, 3.7)) * MBNoise(float3(dir * 5.1, 9.1) + 0.5);
+    float3 vel = float3(dir.x, 0, dir.y) * (_GSpeed * (0.3 + 0.7 * strength) * lobe * (0.7 + 0.6 * MBNoise(p * 1.3))) + _UpGrid * (_GLift * (0.5 + strength) * (0.6 + 0.8 * MBNoise(p * 0.7 + 4.0)));
+    float behindG = saturate(-p.x / 1.5) * saturate(1.0 - (-p.x) / _BackReach);
+    vel += float3(-1, 0, 0) * (_BackWind * behindG);   // behind the muzzle it leaves the ground already blown back
+    float4 dd = _DRW[id];
+    float4 u = _URW[id];
+    float k = add / (dd.x + dd.y + add + 1e-6);
+    dd.x += add * (1.0 - _GCoarse);
+    dd.y += add * _GCoarse;
+    dd.w = lerp(dd.w, MBNoise(p * 0.9 + 7.0), k);
+    u.xyz = lerp(u.xyz, vel, saturate(k * 4.0));
+    _DRW[id] = dd; _URW[id] = u;
+}
+
+// hull: points on the upward faces, released as the wave passes and shed for a moment, thrown back and up
+[numthreads(64, 1, 1)]
+void DSurface(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _SurfCount) return;
+    float4 sp = _SurfPos[id.x];
+    float4 sn = _SurfNrm[id.x];
+    float d = length(sp.xyz - _ShockC);
+    float age = _HTime - (ShockArrival(d) + sn.w * 0.008);
+    if (age < 0 || age > _HWindow) return;
+    float3 pos = sp.xyz + sn.xyz * (_Cell * 1.1);
+    int3 c = int3(floor((pos - _BoxMin) / _Cell));
+    if (!Inside(c)) return;
+    float strength = 1.0 / (1.0 + 0.15 * d);
+    float add = _HAmount * sp.w * strength * _Dt / _HWindow;
+    float behindH = saturate(-sp.x / 1.5) * saturate(1.0 - (-sp.x) / _BackReach);
+    float3 vel = _Back * (_HSpeed * strength * (0.6 + 0.8 * sn.w) + _BackWind * behindH) + _UpGrid * (_HLift * (0.6 + 0.8 * frac(sn.w * 7.3))) + sn.xyz * 1.0;
+    float4 dd = _DRW[c];
+    float k = add / (dd.x + dd.y + add + 1e-6);
+    dd.x += add;
+    dd.w = lerp(dd.w, sn.w, k);
+    dd.z = lerp(dd.z, 1.0, k);   // hull dust
+    _DRW[c] = dd;
+    float4 u = _URW[c];
+    u.xyz = lerp(u.xyz, vel, saturate(k * 4.0));
+    _URW[c] = u;
+}
+
+// drag towards the (gusty) wind, settling, a little rolling turbulence, decay; the tank deflects it
+[numthreads(8, 8, 8)]
+void DForces(uint3 id : SV_DispatchThreadID)
+{
+    float3 p = CellPos(id);
+    float4 dd = _DRW[id];
+    float4 u = _URW[id];
+    float dt = _Dt;
+    float tot = dd.x + dd.y;
+    if (SolidAt(int3(id))) { _DRW[id] = 0; _URW[id] = 0; return; }
+    float3 gust = _GustAmp * MBCurlNoise((p - _Wind * _T) / _GustSize + float3(0, _T * 0.15, 0)) * 0.35;
+    float coarseFrac = tot > 1e-6 ? dd.y / tot : 0.0;
+    float drag = lerp(lerp(_DragFine, _DragCoarse, coarseFrac), _HullDrag, saturate(dd.z));
+    // right after the shot the air behind the muzzle is blown back along the tank (it drags the dust with it)
+    float behind = saturate(-p.x / 1.5) * saturate(1.0 - (-p.x) / _BackReach);
+    float3 airVel = _Wind + gust + float3(-1, 0, 0) * (_BackWind * behind) + _UpGrid * (_BackWind * behind * 0.18);
+    drag = max(drag, 12.0 * behind * saturate(_BackWind / max(_BackMax, 1e-3)));   // the back-blow grabs the dust firmly; afterwards it coasts
+    u.xyz += (airVel - u.xyz) * (1.0 - exp(-dt * drag));
+    u.xyz -= _UpGrid * (dt * lerp(_FallFine, _FallCoarse, coarseFrac) * 4.0);   // settle (eased in by the drag)
+    if (tot > 1e-5) u.xyz += dt * _TurbAmp * MBCurlNoise(p / _TurbSize + float3(_T * 0.3, -_T * 0.2, 0));
+    // a dust front racing over the ground rolls up: fast low dust is lifted (the leading edge billows up)
+    float hgtF = p.y - _BoxMin.y;
+    if (tot > 1e-5 && hgtF < 2.5)
+    {
+        float uh = length(u.xyz - _UpGrid * dot(u.xyz, _UpGrid));
+        u.xyz += _UpGrid * (dt * _KickUp * uh * saturate(1.0 - hgtF / 2.5));
+    }
+    // ground: dust cannot go into it; at the tank, the part moving into the wall is removed
+    if (p.y - _BoxMin.y < _Cell) u.xyz -= _UpGrid * min(dot(u.xyz, _UpGrid), 0.0);
+    if (_UseSolid > 0.5)
+    {
+        int3 c = int3(id);
+        float3 g = float3((float)SolidAt(c + int3(1, 0, 0)) - (float)SolidAt(c - int3(1, 0, 0)),
+                          (float)SolidAt(c + int3(0, 1, 0)) - (float)SolidAt(c - int3(0, 1, 0)),
+                          (float)SolidAt(c + int3(0, 0, 1)) - (float)SolidAt(c - int3(0, 0, 1)));
+        if (dot(g, g) > 0) { float3 n = -normalize(g); u.xyz -= n * min(dot(u.xyz, n), 0.0); }
+    }
+    // fine dust thins out; coarse grains drop out of the air near the ground
+    dd.x *= exp(-dt / _TauFine - dt * _LateFade);
+    dd.y *= exp(-dt * (p.y - _BoxMin.y < 0.3 ? 4.0 : 0.3));
+    _DRW[id] = dd; _URW[id] = u;
+}
+
+// semi-Lagrangian transport by the dust's own velocity
+[numthreads(8, 8, 8)]
+void DAdvect(uint3 id : SV_DispatchThreadID)
+{
+    float3 vel = _U[id].xyz;
+    // still air has no velocity of its own, so tracing back with it alone the dust could never move into it (it stayed in
+    // the 0.6 m layer it was thrown from): blend in the neighbours' velocity, weighted by their dust
+    if (_Spread > 0.5)
+    {
+        float4 d0 = _D[id];
+        float m0 = d0.x + d0.y;
+        float3 vs = vel * (m0 + 1e-7);
+        float ms = m0 + 1e-7;
+        const int3 nb[6] = { int3(1, 0, 0), int3(-1, 0, 0), int3(0, 1, 0), int3(0, -1, 0), int3(0, 0, 1), int3(0, 0, -1) };
+        [unroll] for (int i = 0; i < 6; i++)
+        {
+            int3 c = int3(id) + nb[i];
+            if (any(c < 0) || any(c >= int3(_Res))) continue;
+            float4 dn = _D[c];
+            float mn = dn.x + dn.y;
+            vs += _U[c].xyz * mn; ms += mn;
+        }
+        vel = vs / ms;
+    }
+    float3 back = (float3(id) + 0.5 - vel * _Dt / _Cell) / float3(_Res);
+    _DOut[id] = _D.SampleLevel(mb_linear_clamp_sampler, back, 0);
+    _UOut[id] = _U.SampleLevel(mb_linear_clamp_sampler, back, 0);
+}
+
+[numthreads(8, 8, 8)]
+void DLight(uint3 id : SV_DispatchThreadID)
+{
+    float3 cc = float3(id) + 0.5;
+    float tau = 0;
+    float3 pc = cc;
+    [loop] for (int i = 0; i < 64; i++)
+    {
+        pc += _SunDirGrid;
+        if (any(pc < 0) || any(pc > float3(_Res))) break;
+        float4 dd = _D.SampleLevel(mb_linear_clamp_sampler, pc / float3(_Res), 0);
+        tau += 0.35 * _SigmaK * (dd.x + 2.0 * dd.y) * _Cell;   // dust scatters light on through itself: soft self-shadow
+    }
+    float tauUp = 0;
+    pc = cc;
+    [loop] for (int j = 0; j < 12; j++)
+    {
+        pc += float3(0, 1.5, 0);
+        if (any(pc < 0) || any(pc > float3(_Res))) break;
+        float4 dd = _D.SampleLevel(mb_linear_clamp_sampler, pc / float3(_Res), 0);
+        tauUp += _SigmaK * (dd.x + 2.0 * dd.y) * _Cell * 1.5;
+    }
+    _LightOut[id] = float2(exp(-tau), exp(-0.5 * tauUp));
+}

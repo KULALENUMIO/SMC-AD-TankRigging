@@ -1,6 +1,17 @@
 {
     "name": "TankRig.Runtime",
     "rootNamespace": "TankRig",
-    "references": [ "Unity.InputSystem" ],
-    "autoReferenced": true
+    "references": [
+        "Unity.InputSystem",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.HighDefinition.Runtime"
+    ],
+    "autoReferenced": true,
+    "versionDefines": [
+        {
+            "name": "com.unity.modules.xr",
+            "expression": "1.0.0",
+            "define": "TANKRIG_XR"
+        }
+    ]
 }

@@ -1,0 +1,116 @@
+// Track ruts: the deformation field around the tank (see GroundRuts.hlsl). RGHalf, R = depth below the lifted
+// ground (m), G = berm height (m). The texture wraps: texel = world position mod window size, so the window can
+// follow the tank by clearing only what it gives up (Recenter) instead of copying.
+#pragma kernel Recenter
+#pragma kernel Stamp
+#pragma kernel RecenterOcc
+
+RWTexture2D<float2> _Field;
+RWTexture2D<float> _Occ;   // coarse: 1 where there is any rut (the ground tessellates only around them)
+int _OccRes;
+int _Res;
+float _Texel;
+float4 _Old;   // xy old window min (world xz)
+float4 _New;   // xy new window min
+
+float2 ModPos(float2 x, float m) { return x - m * floor(x / m); }
+
+[numthreads(8, 8, 1)]
+void Recenter(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= (uint)_Res)) return;
+    float size = _Res * _Texel;
+    float2 tp = (id.xy + 0.5) * _Texel;
+    float2 wOld = _Old.xy + ModPos(tp - _Old.xy, size);   // the world point this texel held
+    float2 wNew = _New.xy + ModPos(tp - _New.xy, size);   // the one it holds now
+    if (any(abs(wOld - wNew) > 0.5 * _Texel)) _Field[id.xy] = 0;
+}
+
+[numthreads(8, 8, 1)]
+void RecenterOcc(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= (uint)_OccRes)) return;
+    float cell = _Texel * _Res / _OccRes, size = _Res * _Texel;
+    float2 tp = (id.xy + 0.5) * cell;
+    float2 wOld = _Old.xy + ModPos(tp - _Old.xy, size);
+    float2 wNew = _New.xy + ModPos(tp - _New.xy, size);
+    if (any(abs(wOld - wNew) > 0.5 * cell)) _Occ[id.xy] = 0;
+}
+
+int4 _Box;     // xy first world texel index, zw count
+float4 _S0;    // xy contact centre (world xz), zw forward (xz, unit)
+float4 _S1;    // x half length, y half width, z shoulder width, w berm width
+float4 _S2;    // x depth (= lift), y grouser bite depth, z link pitch, w distance the track has run (m)
+float4 _S3;    // x grouser width (share of the pitch), y berm height, z seed, w floor roughness (share of depth)
+float4 _S4;    // x softness, y half width of the pad gap (m), z ridge height in the gap (share of depth)
+
+float Hash(float2 p) { p = frac(p * float2(443.897, 441.423)); p += dot(p, p.yx + 19.19); return frac((p.x + p.y) * p.x); }
+float Noise(float2 p)
+{
+    float2 i = floor(p), f = frac(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return lerp(lerp(Hash(i), Hash(i + float2(1, 0)), f.x), lerp(Hash(i + float2(0, 1)), Hash(i + 1), f.x), f.y);
+}
+
+[numthreads(8, 8, 1)]
+void Stamp(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= (uint2)_Box.zw)) return;
+    int2 wt = _Box.xy + (int2)id.xy;
+    float2 w = (wt + 0.5) * _Texel;
+    int2 ti = int2(ModPos((float2)wt, (float)_Res));
+
+    float2 f = _S0.zw, r = float2(f.y, -f.x);
+    float2 d = w - _S0.xy;
+    float s = dot(d, f), t = dot(d, r);
+    float along = s + _S2.w;                       // fixed to the ground (the track does not slip)
+    float soft = _S4.x;
+    // the soil does not cut clean: the walls wander and crumble a little along the rut
+    float wob = (Noise(float2(along * 1.7, t * 0.5 + _S3.z)) - 0.5) * 0.035 * soft + (Noise(w * 13.0) - 0.5) * 0.012;
+    float a = abs(t) - _S1.y - wob;                // > 0 outside the track's sides
+    float b = abs(s) - _S1.x;                      // > 0 ahead / behind the contact
+    float wall = _S1.z * (0.75 + 0.5 * Noise(float2(along * 3.1, t * 2.0 + 7.0)));
+    float lift = _S2.x * (0.85 + 0.3 * Noise(w * 0.45 + 3.0));   // the ground is not equally soft everywhere
+
+    float dep = 0;
+    float edge = max(a, b);
+    if (edge < wall)
+    {
+        float k = saturate(edge / wall);
+        dep = lift * (1.0 - k * k * (3.0 - 2.0 * k));   // rounded shoulder down to the floor
+        float inside = saturate(-a / 0.025) * saturate(-b / 0.05);
+        // grousers: a bar across the track every link, edges not perfectly straight
+        float link = floor(along / _S2.z);
+        float ph = frac(along / _S2.z + (Noise(float2(t * 9.0, link * 0.7)) - 0.5) * 0.10);
+        float gw = _S3.x * 0.5;
+        float bar = 1.0 - smoothstep(gw, gw + 0.10, abs(ph - 0.5));
+        float uneven = 0.6 + 0.8 * Noise(float2(link * 1.7 + _S3.z, t * 6.0));   // each bar bites a little differently
+        // the joint between two links: a thin shallow line; the gap between the two pads: soil squeezed up in the middle
+        float joint = 1.0 - smoothstep(0.02, 0.06, min(ph, 1.0 - ph));
+        float ridge = (1.0 - smoothstep(0.0, _S4.y, abs(t))) * _S4.z;
+        dep += _S2.y * inside * (bar * uneven + 0.35 * joint) - ridge * lift * inside;
+        dep += _S3.w * lift * (Noise(w * 9.0 + _S3.z) - 0.5) * inside;              // a pressed, not perfectly flat floor
+    }
+
+    // berms: soil squeezed out along the sides, in clods
+    float berm = 0;
+    if (b < wall)
+    {
+        float x = (a - wall * 0.4) / _S1.w;
+        if (x > -0.1 && x < 1.2)
+        {
+            float p = sin(saturate(x) * 3.14159265);
+            float lumps = 0.35 + 1.1 * Noise(w * 3.2 + _S3.z * 3.1) * (0.6 + 0.4 * Noise(w * 11.0));
+            float clods = pow(Noise(w * 16.0 + 5.0), 3.0) * 1.6 * saturate(1.3 - abs(x - 0.4) * 1.6);   // broken lumps on and beside it
+            berm = _S3.y * (p * p * lumps + clods * soft) * (1.0 - saturate(b / wall));
+        }
+    }
+
+    if (dep > 0.0005 || berm > 0.0005)
+    {
+        float cell = _Texel * _Res / _OccRes;
+        _Occ[int2(ModPos(floor(w / cell), (float)_OccRes))] = 1;
+    }
+    float2 old = _Field[ti];
+    _Field[ti] = float2(max(old.x, dep), max(old.y, berm));
+}

@@ -1,0 +1,88 @@
+// Occupancy bricks for the raymarch's empty-space skipping. Every grid is split into 8x8x8-cell bricks; a brick is
+// marked when any of its cells holds visible gas (the same thresholds the raymarch uses to decide whether a point is
+// worth shading), then the marks are dilated by one brick. A point whose (dilated) brick is empty has nothing within
+// 8 cells of it, so the march may jump 7 cells without missing anything (its lookups reach 1 cell).
+#pragma kernel OccMax
+#pragma kernel OccDilate
+#pragma kernel NoiseTex
+
+Texture3D<float4> _Src;
+RWTexture3D<float> _Raw;
+Texture3D<float> _RawIn;
+RWTexture3D<float> _Occ;
+uint3 _BRes;
+float4 _Thr;   // x: threshold on .x, y: threshold on .y (0 = not used); z: 1 = dust (x + 2y against x)
+
+[numthreads(4, 4, 4)]
+void OccMax(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= _BRes)) return;
+    uint3 o = id * 8;
+    float m = 0;
+    [loop] for (uint z = 0; z < 8; z++)
+    [loop] for (uint y = 0; y < 8; y++)
+    [unroll] for (uint x = 0; x < 8; x++)
+    {
+        float4 s = _Src[o + uint3(x, y, z)];
+        float v = _Thr.z > 0.5 ? (s.x + 2.0 * s.y) / _Thr.x : max(s.x / _Thr.x, _Thr.y > 0 ? s.y / _Thr.y : 0.0);
+        m = max(m, v);
+    }
+    _Raw[id] = m >= 1.0 ? 1.0 : 0.0;
+}
+
+[numthreads(4, 4, 4)]
+void OccDilate(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= _BRes)) return;
+    float m = 0;
+    int3 hi = int3(_BRes) - 1;
+    [unroll] for (int z = -1; z <= 1; z++)
+    [unroll] for (int y = -1; y <= 1; y++)
+    [unroll] for (int x = -1; x <= 1; x++)
+        m = max(m, _RawIn[clamp(int3(id) + int3(x, y, z), 0, hi)]);
+    _Occ[id] = m;
+}
+
+// ---- tileable detail noise for the raymarch (real-time): 4 independent gradient noises per texel, the same kind as
+// MBNoise (quintic fade, remapped to ~0..1), lattice period 16 units over the texture, 8 texels per unit
+RWTexture3D<float4> _NoiseOut;
+uint _NoiseRes;
+
+float NHash(float3 p)
+{
+    p = frac(p * 0.1031);
+    p += dot(p, p.zyx + 31.32);
+    return frac((p.x + p.y) * p.z);
+}
+float3 NGrad(float3 i, float seed)
+{
+    float a = NHash(i + seed) * 6.2831853;
+    float z = NHash(i + seed + 17.17) * 2.0 - 1.0;
+    float r = sqrt(saturate(1.0 - z * z));
+    return float3(r * cos(a), r * sin(a), z);
+}
+float NPeriodic(float3 p, float period, float seed)
+{
+    float3 i = floor(p);
+    float3 f = p - i;
+    float3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    float n[8];
+    [unroll] for (int k = 0; k < 8; k++)
+    {
+        float3 o = float3(k & 1, (k >> 1) & 1, (k >> 2) & 1);
+        float3 c = fmod(i + o, period);
+        n[k] = dot(NGrad(c, seed), f - o);
+    }
+    float v = lerp(lerp(lerp(n[0], n[1], u.x), lerp(n[2], n[3], u.x), u.y),
+                   lerp(lerp(n[4], n[5], u.x), lerp(n[6], n[7], u.x), u.y), u.z);
+    return saturate(0.5 + 0.75 * v);
+}
+
+[numthreads(4, 4, 4)]
+void NoiseTex(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= _NoiseRes)) return;
+    float period = 16.0;
+    float3 p = (float3(id) + 0.5) * (period / _NoiseRes);
+    _NoiseOut[id] = float4(NPeriodic(p, period, 0.0), NPeriodic(p, period, 53.7), NPeriodic(p, period, 91.3), NPeriodic(p, period, 137.9));
+}
