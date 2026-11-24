@@ -14,7 +14,7 @@ namespace TankRig.Editor
     /// </summary>
     public static class TankRigHdrpUpgrade
     {
-        [MenuItem("Tools/TankRig/HDRP に合わせる（ライト・エフェクト）")]
+        [MenuItem("Tools/SMC-AD/戦車（Tank Rigging）/HDRP に合わせる（ライト・エフェクト）", priority = 200)]
         static void Menu()
         {
             string r = Upgrade();

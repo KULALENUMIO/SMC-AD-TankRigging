@@ -9,7 +9,7 @@ namespace TankRig.Sights
     /// (cross, mil scale, tracking gate, range, ammunition, ready, turret/hull bearing, gun elevation, sensor state).
     /// Optical fields of view and electronic zoom are stepped with the wheel; T changes camera, B the polarity.
     /// </summary>
-    [AddComponentMenu("Tank Rig/Sights/Display Sight")]
+    [AddComponentMenu("SMC-AD/Tank Rigging/Sights/Display Sight")]
     public class DisplaySight : TankSight
     {
         [Tooltip("数値（なければ既定値: サーマル 4:3、1024×768）")] public DisplaySightProfile profile;

@@ -7,7 +7,7 @@ namespace TankRig.Sights
     /// the magnification's true field of view, with an etched reticle (Western cross + mil scale, or Soviet chevron
     /// with stadiametric curve and ballistic range scales), the laser range and the ready lamp.
     /// </summary>
-    [AddComponentMenu("Tank Rig/Sights/Optical Sight")]
+    [AddComponentMenu("SMC-AD/Tank Rigging/Sights/Optical Sight")]
     public class OpticalSight : TankSight
     {
         [Tooltip("数値（なければ既定値: 西側 3x / 10x）")] public OpticalSightProfile profile;

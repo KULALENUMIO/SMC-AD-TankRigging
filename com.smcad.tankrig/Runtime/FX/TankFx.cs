@@ -17,7 +17,7 @@ using UnityEngine.Rendering.HighDefinition;
 namespace TankRig.FX
 {
     [DisallowMultipleComponent]
-    [AddComponentMenu("Tank Rig/Tank FX（リアルなエフェクト）")]
+    [AddComponentMenu("SMC-AD/Tank Rigging/Tank FX（リアルなエフェクト）")]
     public class TankFx : MonoBehaviour
     {
         [Tooltip("the tank (empty = the TankController on this object or above)")] public TankController controller;

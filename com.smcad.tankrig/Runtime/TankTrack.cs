@@ -17,7 +17,7 @@ namespace TankRig
     /// </summary>
     [ExecuteAlways]
     [DefaultExecutionOrder(10)]
-    [AddComponentMenu("Tank Rig/Tank Track")]
+    [AddComponentMenu("SMC-AD/Tank Rigging/Tank Track")]
     public class TankTrack : MonoBehaviour
     {
         public enum WheelRole { Road, Return, End }

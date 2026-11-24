@@ -15,7 +15,7 @@ namespace TankRig.Sights
     /// </summary>
     [RequireComponent(typeof(Camera))]
     [DefaultExecutionOrder(-50)]
-    [AddComponentMenu("Tank Rig/Sights/Tank Sight Rig")]
+    [AddComponentMenu("SMC-AD/Tank Rigging/Sights/Tank Sight Rig")]
     public class TankSightRig : MonoBehaviour, ITankAimSource
     {
         public TankController tank;

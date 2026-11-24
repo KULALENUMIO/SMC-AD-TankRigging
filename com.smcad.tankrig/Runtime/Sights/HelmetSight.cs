@@ -9,7 +9,7 @@ namespace TankRig.Sights
     /// inside the goggles' field of view: heading tape, horizon, gun line, hull outline, target markers, minimap.
     /// G designates the target under the gaze; the gun then stays on it (slew to cue) until G releases it.
     /// </summary>
-    [AddComponentMenu("Tank Rig/Sights/Helmet Sight (VR)")]
+    [AddComponentMenu("SMC-AD/Tank Rigging/Sights/Helmet Sight (VR)")]
     public class HelmetSight : TankSight
     {
         [Tooltip("数値（なければ既定値: 40°×30°、全周）")] public HelmetSightProfile profile;

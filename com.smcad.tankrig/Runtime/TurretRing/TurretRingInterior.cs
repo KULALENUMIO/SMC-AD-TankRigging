@@ -13,7 +13,7 @@ namespace TankRig
     /// Everything scales with <see cref="innerDiameter"/> (default 2.25 m); <see cref="ringWidth"/> is the ring band.
     /// </summary>
     [ExecuteAlways]
-    [AddComponentMenu("Tank Rig/Turret Ring Interior")]
+    [AddComponentMenu("SMC-AD/Tank Rigging/Turret Ring Interior")]
     public class TurretRingInterior : MonoBehaviour
     {
         const float DesignDiameter = 2.25f;

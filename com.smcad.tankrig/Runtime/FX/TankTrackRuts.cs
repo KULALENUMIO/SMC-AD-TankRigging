@@ -105,11 +105,11 @@ namespace TankRig.FX
         public void Setup()
         {
             // the compute shader ships in the package; the ground shaders are made in the project from its own HDRP
-            // (Tools > Tank Rig > 轍の地面シェーダーを作る; the editor does it on its own when they are missing)
+            // (Tools > SMC-AD > 戦車（Tank Rigging） > 轍の地面シェーダーを作る; the editor does it on its own when they are missing)
             if (!compute) compute = Resources.Load<ComputeShader>("TankRigFX/TankTrackRuts");
             if (!groundShader) groundShader = Shader.Find("TankRig/GroundRuts");
             if (!terrainShader) terrainShader = Shader.Find("TankRig/TerrainRuts");
-            if (!compute || (!groundShader && !terrainShader)) { Debug.LogWarning("TankTrackRuts: the ruts' compute / ground shaders are missing (Tools > Tank Rig > 轍の地面シェーダーを作る)"); return; }
+            if (!compute || (!groundShader && !terrainShader)) { Debug.LogWarning("TankTrackRuts: the ruts' compute / ground shaders are missing (Tools > SMC-AD > 戦車（Tank Rigging） > 轍の地面シェーダーを作る)"); return; }
             kRecenter = compute.FindKernel("Recenter"); kStamp = compute.FindKernel("Stamp"); kRecenterOcc = compute.FindKernel("RecenterOcc");
             FindTracks();
             BuildLook();

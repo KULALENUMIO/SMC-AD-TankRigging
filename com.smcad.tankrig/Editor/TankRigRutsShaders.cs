@@ -4,7 +4,7 @@
 // They are copies of HDRP's shaders with a few lines added, so they are generated here rather than shipped in this
 // MIT package (HDRP's own code is under the Unity Companion License), and they always match the installed HDRP.
 // Output: Assets/TankRig/Generated/Resources/TankRigRuts (Resources: they go into builds). Remade automatically when
-// missing or when the HDRP version changes; by hand: Tools > Tank Rig > 轍の地面シェーダーを作る.
+// missing or when the HDRP version changes; by hand: Tools > SMC-AD > 戦車（Tank Rigging） > 轍の地面シェーダーを作る.
 using System.IO;
 using System.Linq;
 using UnityEditor;
@@ -31,7 +31,7 @@ namespace TankRig.Editor
                 && File.Exists(stamp) && File.ReadAllText(stamp).Trim() == HdrpVersion();
         }
 
-        [MenuItem("Tools/Tank Rig/轍の地面シェーダーを作る", priority = 22)]
+        [MenuItem("Tools/SMC-AD/戦車（Tank Rigging）/轍の地面シェーダーを作る", priority = 63)]
         static void GenerateMenu() { Generate(true); }
 
         public static bool Generate(bool log)

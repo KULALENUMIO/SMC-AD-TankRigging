@@ -5,13 +5,13 @@ using UnityEngine;
 namespace TankRig.Editor
 {
     /// <summary>
-    /// Tools > Tank Rig > 戦車組み立てウィンドウ: pick hull / turret / gun, place the tracks (mirrored) and the effect points
+    /// Tools > SMC-AD > 戦車（Tank Rigging） > 戦車組み立てウィンドウ: pick hull / turret / gun, place the tracks (mirrored) and the effect points
     /// with the mouse in the Scene view, then rig the tank so it can be driven with WASD + mouse.
     /// The steps are tabs; the finish buttons stay at the bottom whatever tab is open.
     /// </summary>
     public partial class TankRigBuilderWindow : EditorWindow
     {
-        [MenuItem("Tools/Tank Rig/戦車組み立てウィンドウ", priority = 1)]
+        [MenuItem("Tools/SMC-AD/戦車（Tank Rigging）/戦車組み立てウィンドウ", priority = 40)]
         public static void Open()
         {
             var w = GetWindow<TankRigBuilderWindow>("戦車組み立て");

@@ -59,7 +59,7 @@ Unity の Package Manager > + > **Add package from git URL…** に次を入力�
 https://github.com/KULALENUMIO/SMC-AD-TankRigging.git?path=/com.smcad.tankrig
 ```
 
-その後 `Tools > Tank Rig > 戦車組み立てウィンドウ` を開きます（使い方はパッケージの README）。
+その後 `Tools > SMC-AD > 戦車（Tank Rigging） > 戦車組み立てウィンドウ` を開きます（使い方はパッケージの README）。
 
 ## 導入するときの注意
 

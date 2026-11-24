@@ -8,7 +8,8 @@
 // Leaving things out is done per view: just before HDRP culls this view's camera the renderers are switched off
 // (Renderer.forceRenderingOff, not saved with the scene) and they are switched on again before any other camera.
 // Mouse picking of the tools asks HiddenHere so a left-out part cannot be clicked through.
-// A copy of SMC-AD's TankRigWorkView.cs (kept separate so the plugin does not depend on SMC-AD; keep the two in step).
+// A copy of SMC-DETAILS' SMWorkView.cs (kept separate so the plugin does not depend on SMC-AD; keep the two in step).
+// When SMC-DETAILS is installed, Open() hands over to its work view, so the two never run side by side.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -37,9 +38,25 @@ namespace TankRig.Editor
 
         public Transform Target => target;
 
-        /// <summary>Opens (or brings up) the work view on this vehicle.</summary>
+        /// <summary>SMC-DETAILS (com.smcad.details) has the same work view. When it is installed, that one is used, so a
+        /// project with both packages gets one work view (one window, one set of left-out parts) instead of two alike.</summary>
+        static MethodInfo SharedOpen()
+        {
+            var t = AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType("SMCAD.Details.Editor.SMWorkView")).FirstOrDefault(x => x != null);
+            return t?.GetMethod("Open", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(Transform) }, null);
+        }
+
+        /// <summary>Opens (or brings up) the work view on this vehicle (SMC-DETAILS' one when that package is installed;
+        /// then this returns null and the tools reach it through RendererTest / TransformTest as usual).</summary>
         public static TankRigWorkView Open(Transform root)
         {
+            var shared = SharedOpen();
+            if (shared != null)
+            {
+                foreach (SceneView sv in sceneViews.Cast<SceneView>().ToList()) if (sv is TankRigWorkView own) own.Close();
+                shared.Invoke(null, new object[] { root });
+                return null;
+            }
             TankRigWorkView w = null;
             foreach (SceneView sv in sceneViews) if (sv is TankRigWorkView x) { w = x; break; }
             bool fresh = w == null;

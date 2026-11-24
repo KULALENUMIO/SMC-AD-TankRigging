@@ -7,7 +7,7 @@ namespace TankRig.Editor
     /// <summary>Adds the sight rig and the three sights (optical, display, helmet) to a tank camera.</summary>
     public static class TankRigSightsSetup
     {
-        [MenuItem("Tools/Tank Rig/照準器を付ける（光学・ディスプレイ・ゴーグル）", priority = 20)]
+        [MenuItem("Tools/SMC-AD/戦車（Tank Rigging）/照準器を付ける（光学・ディスプレイ・ゴーグル）", priority = 60)]
         static void AddToSceneCamera()
         {
             var tc = Object.FindFirstObjectByType<TankCamera>();

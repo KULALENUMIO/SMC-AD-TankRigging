@@ -41,7 +41,7 @@ namespace TankRig.FX
         [Tooltip("dust shaken off the tank's upper faces by the blast")] public FxChannel hullDust = new FxChannel();
     }
 
-    [AddComponentMenu("Tank Rig/Main Gun FX（主砲の発砲・軽量）")]
+    [AddComponentMenu("SMC-AD/Tank Rigging/Main Gun FX（主砲の発砲・軽量）")]
     public class MainGunFX : MonoBehaviour, IFlashParticles
     {
         public Transform muzzle;

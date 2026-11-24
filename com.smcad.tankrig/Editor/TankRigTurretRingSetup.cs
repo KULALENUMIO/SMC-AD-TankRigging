@@ -6,7 +6,7 @@ namespace TankRig.Editor
     /// <summary>Adds the turret ring interior to the selected tank (or the first tank in the scene).</summary>
     public static class TankRigTurretRingSetup
     {
-        [MenuItem("Tools/Tank Rig/ターレットリング内装を付ける", priority = 21)]
+        [MenuItem("Tools/SMC-AD/戦車（Tank Rigging）/ターレットリング内装を付ける", priority = 62)]
         static void Add()
         {
             var tank = Selection.activeGameObject ? Selection.activeGameObject.GetComponentInParent<TankController>() : null;

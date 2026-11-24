@@ -33,7 +33,7 @@ namespace TankRig.Editor
             public float Time(int k, int n) => t0 + (t1 - t0) * Mathf.Pow(k / (n - 1f), pow);
         }
 
-        [MenuItem("Tools/Tank Rig/主砲の煙をフリップブックに焼く", priority = 23)]
+        [MenuItem("Tools/SMC-AD/戦車（Tank Rigging）/主砲の煙をフリップブックに焼く", priority = 64)]
         static void Menu()
         {
             var r = Bake(AssetPath, 256, null);   // 8 x 256 = 2048

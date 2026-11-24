@@ -10,7 +10,7 @@ namespace TankRig
     ///  - Kinematic: no rigidbody; 4 ground probes give height and tilt (cheap, e.g. for many AI tanks).
     /// The turret and gun turn towards the camera's aim point at limited speeds, left click fires the main gun, Space the machine gun.
     /// </summary>
-    [AddComponentMenu("Tank Rig/Tank Controller")]
+    [AddComponentMenu("SMC-AD/Tank Rigging/Tank Controller")]
     [DisallowMultipleComponent]
     [DefaultExecutionOrder(-50)] // move the hull before the tracks let their wheels find the ground
     public partial class TankController : MonoBehaviour

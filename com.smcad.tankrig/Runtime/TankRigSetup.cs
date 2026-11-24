@@ -10,7 +10,7 @@ namespace TankRig
     /// </summary>
     [ExecuteAlways]
     [DisallowMultipleComponent]
-    [AddComponentMenu("Tank Rig/Tank Rig Setup")]
+    [AddComponentMenu("SMC-AD/Tank Rigging/Tank Rig Setup")]
     public class TankRigSetup : MonoBehaviour
     {
         [Header("モデル")]

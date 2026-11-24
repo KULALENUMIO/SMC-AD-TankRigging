@@ -1,5 +1,5 @@
 // Numbers for the three sight types. Every value a real sight is described by lives here, so a sight can be
-// tuned (or a specific tank reproduced) by editing an asset: Assets > Create > Tank Rig > 照準器 > ...
+// tuned (or a specific tank reproduced) by editing an asset: Assets > Create > SMC-AD > Tank Rigging > 照準器 > ...
 // Defaults come from public sources; see Documentation~/Sights.md for the sources and which values are guesses.
 using UnityEngine;
 
@@ -26,7 +26,7 @@ namespace TankRig.Sights
 
     // ------------------------------------------------------------------ optical
 
-    [CreateAssetMenu(menuName = "Tank Rig/照準器/直接照準器（光学）", fileName = "OpticalSight")]
+    [CreateAssetMenu(menuName = "SMC-AD/Tank Rigging/照準器/直接照準器（光学）", fileName = "OpticalSight")]
     public class OpticalSightProfile : SightProfile
     {
         [Header("光学")]
@@ -142,7 +142,7 @@ namespace TankRig.Sights
         [Tooltip("視野の名前（例: WFOV, NFOV）")] public string[] fieldNames = { "WFOV", "NFOV" };
     }
 
-    [CreateAssetMenu(menuName = "Tank Rig/照準器/デジタル射撃画面（ディスプレイ）", fileName = "DisplaySight")]
+    [CreateAssetMenu(menuName = "SMC-AD/Tank Rigging/照準器/デジタル射撃画面（ディスプレイ）", fileName = "DisplaySight")]
     public class DisplaySightProfile : SightProfile
     {
         [Header("画面（モニター）")]
@@ -220,7 +220,7 @@ namespace TankRig.Sights
 
     // ------------------------------------------------------------------ helmet (VR goggles)
 
-    [CreateAssetMenu(menuName = "Tank Rig/照準器/全周デジタル射撃画面（VR ゴーグル）", fileName = "HelmetSight")]
+    [CreateAssetMenu(menuName = "SMC-AD/Tank Rigging/照準器/全周デジタル射撃画面（VR ゴーグル）", fileName = "HelmetSight")]
     public class HelmetSightProfile : SightProfile
     {
         [Header("ゴーグル")]

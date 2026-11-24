@@ -4,14 +4,14 @@
 
 | 種類 | コンポーネント | 数値（プロファイル） | 作成メニュー |
 |---|---|---|---|
-| 直接照準器（光学） | `OpticalSight` | `OpticalSightProfile` | Assets > Create > Tank Rig > 照準器 > 直接照準器（光学） |
+| 直接照準器（光学） | `OpticalSight` | `OpticalSightProfile` | Assets > Create > SMC-AD > Tank Rigging > 照準器 > 直接照準器（光学） |
 | デジタル射撃画面（ディスプレイ） | `DisplaySight` | `DisplaySightProfile` | 同 > デジタル射撃画面（ディスプレイ） |
 | 全周デジタル射撃画面（VR ゴーグル） | `HelmetSight` | `HelmetSightProfile` | 同 > 全周デジタル射撃画面（VR ゴーグル） |
 
 切り替えと共通の処理は `TankSightRig` が受け持ちます。カーソル、レーザー測距、弾種、発砲時の揺れ、記号の描画、主砲の照準です。
 
 - **新しく組み立てる戦車**: 「戦車を完成させる」で自動的に付きます。
-- **完成済みの戦車**: `Tools > Tank Rig > 照準器を付ける` で付けます。
+- **完成済みの戦車**: `Tools > SMC-AD > 戦車（Tank Rigging） > 照準器を付ける` で付けます。
 
 ## 数値の入れ方
 

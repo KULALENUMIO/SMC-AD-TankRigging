@@ -10,7 +10,7 @@ namespace TankRig.Editor
     {
         const string FlashMaterialPath = TankFxFactory.Folder + "/TankRig_FlashParticles.mat";
 
-        [MenuItem("Tools/Tank Rig/リアルなエフェクトを付ける（選択中の戦車）", priority = 21)]
+        [MenuItem("Tools/SMC-AD/戦車（Tank Rigging）/リアルなエフェクトを付ける（選択中の戦車）", priority = 61)]
         static void AddToSelection()
         {
             var c = Selection.activeGameObject ? Selection.activeGameObject.GetComponentInParent<TankController>() : null;

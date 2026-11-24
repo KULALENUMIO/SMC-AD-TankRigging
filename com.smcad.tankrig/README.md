@@ -20,7 +20,7 @@ SMC-AD で取り込んだ戦車モデルに、同梱の履帯（転輪一式 + �
 
 ## 使い方
 
-`Tools > Tank Rig > 戦車組み立てウィンドウ` を開きます。最初に戦車モデルと部位を指定して「組み立てを始める」を押すと、
+`Tools > SMC-AD > 戦車（Tank Rigging） > 戦車組み立てウィンドウ` を開きます。最初に戦車モデルと部位を指定して「組み立てを始める」を押すと、
 手順ごとのタブ（① 部位 〜 ⑥ 走行・主砲）に分かれた画面になります。① から順に進め、最後にいちばん下の **「戦車を完成させる」** を押します（どのタブからでも押せます）。
 いくつかの中から選ぶもの（転輪の数、履帯のデザイン、ポイント、機銃・副砲塔、走行方式、機銃のひな形）はプルダウンにまとめ、細かい設定は ▶ で開く欄にしまってあります。
 シーンビューでポイントや機銃のハンドルをクリックすると、そのタブが開きます。
@@ -95,7 +95,7 @@ SMC-AD で取り込んだ戦車モデルに、同梱の履帯（転輪一式 + �
 | B | 白黒反転（ディスプレイ） |
 | G | 目標の指定・解除（ゴーグル） |
 
-倍率・視野・解像度・縦横比・目盛り・色などの数値は、すべてプロファイル（Assets > Create > Tank Rig > 照準器）で変えられます。詳しい説明と、既定値の根拠にした資料は [Documentation~/Sights.md](Documentation~/Sights.md) にあります。
+倍率・視野・解像度・縦横比・目盛り・色などの数値は、すべてプロファイル（Assets > Create > SMC-AD > Tank Rigging > 照準器）で変えられます。詳しい説明と、既定値の根拠にした資料は [Documentation~/Sights.md](Documentation~/Sights.md) にあります。
 
 ## 仕組み
 
@@ -119,12 +119,12 @@ SMC-AD で取り込んだ戦車モデルに、同梱の履帯（転輪一式 + �
 - `TankCamera` … War Thunder 風の三人称カメラと HUD。自分の当たり判定は無視します。
 - 別のエフェクトを付けるためのフック: `TankController.GunFired`（主砲・副砲の発砲。砲口・火力・当たった位置）、`RoundFired`（機銃 1 発ごと。向き・性能・曳光弾か・当たった位置）、`CurrentInput`（今の入力）。`builtInEffects` をオフにすると組み込みのエフェクト（発砲炎・煙・光・曳光弾・着弾・排気煙）を止めます。
 - `TankFx`（リアルなエフェクト）… 機銃・副砲の発砲（口径で大きさ）、排気、土煙と土塊、履帯の巻き込み、主砲の発砲を、組み込みのパーティクルの代わりに出します。
-  ビルダーの「リアルなエフェクト」（既定オン）で付き、既存の戦車には Tools > Tank Rig > リアルなエフェクトを付ける。`gunFlashes` / `exhaust` / `dust` / `trackSpill` で個別にオン / オフ、細かい数値は `TankExhaustFX` / `TankDustFX` / `TankTrackSpillFX` と、撃った砲口に付く `GunFlashFX` にあります。
+  ビルダーの「リアルなエフェクト」（既定オン）で付き、既存の戦車には Tools > SMC-AD > 戦車（Tank Rigging） > リアルなエフェクトを付ける。`gunFlashes` / `exhaust` / `dust` / `trackSpill` で個別にオン / オフ、細かい数値は `TankExhaustFX` / `TankDustFX` / `TankTrackSpillFX` と、撃った砲口に付く `GunFlashFX` にあります。
   粒子は CPU で動かし、HDRP のカスタムパス 1 つ（`GunFlashPass`、シーンの「Tank Rig FX Pass」）で描きます。何にも当たりません。
   煙と土煙は地面・戦車・互いに影を落とし（`particleShadows`）、排気と炎の後ろは陽炎で揺れます（`heatHaze`）。
   主砲（`mainGunBlast`、口径 `mainGunCaliberMm`）: 既定はシミュレーションから焼いたフリップブックの軽いパーティクル（`MainGunFX`: 炎・火球・砲口の煙・土煙・衝撃の土煙・小石。負荷はほぼゼロ）。
   重いもの（プレイ中に作る）: `mainGunSimulation`（撮影用: 主砲の爆風を GPU で計算、小石 `gravel`、品質 `blastQuality` 0〜2、既定 2 = 低。プレイ中は `SetMainGunSimulation(true)`）、`ruts`（地面が実際にへこむ轍。地面は 1〜2 m 程度に細かいメッシュの HDRP/Lit か Unity Terrain）。
-  撮影用には `mainGunSimulation` + `blastQuality` 0（高）と `dustAmount` 1 がおすすめ。轍の地面シェーダーはプロジェクトの HDRP から自動で作られます（Tools > Tank Rig > 轍の地面シェーダーを作る）。
+  撮影用には `mainGunSimulation` + `blastQuality` 0（高）と `dustAmount` 1 がおすすめ。轍の地面シェーダーはプロジェクトの HDRP から自動で作られます（Tools > SMC-AD > 戦車（Tank Rigging） > 轍の地面シェーダーを作る）。
 - `useExternalInput` + `externalInput` で AI やネットワークからも操縦できます（`holdMain` = 左ボタン押しっぱなし、`fireSecondary` = 副武装）。`Teleport()` でリスポーン。
 
 ## 前提・制限

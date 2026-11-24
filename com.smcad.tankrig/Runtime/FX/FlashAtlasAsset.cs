@@ -1,5 +1,5 @@
 // Baked flipbooks for sprite particles, saved as one asset (this object + its two texture arrays as sub-assets).
-// Made by Tools > Tank Rig > 主砲の煙をフリップブックに焼く (TankRig.Editor.FlashAtlasBaker) from the main-gun
+// Made by Tools > SMC-AD > 戦車（Tank Rigging） > 主砲の煙をフリップブックに焼く (TankRig.Editor.FlashAtlasBaker) from the main-gun
 // simulation itself; the package's own copy lives in Resources/TankRigFX/BlastAtlas and is FlashAtlas.Default.
 using UnityEngine;
 

@@ -8,7 +8,7 @@ namespace TankRig
     /// Draws a centre reticle, a marker where the gun currently points, speed and reload.
     /// </summary>
     [RequireComponent(typeof(Camera))]
-    [AddComponentMenu("Tank Rig/Tank Camera")]
+    [AddComponentMenu("SMC-AD/Tank Rigging/Tank Camera")]
     public class TankCamera : MonoBehaviour
     {
         public TankController target;
