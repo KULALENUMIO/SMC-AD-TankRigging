@@ -49,3 +49,9 @@ desktop.ini
 .vs/
 .vscode/
 .idea/
+
+# --- Research material (kept local, not published) ---
+/Blender/TurretRing/
+/docs/
+__pycache__/
+*.pyc

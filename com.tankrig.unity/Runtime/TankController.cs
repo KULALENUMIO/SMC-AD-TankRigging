@@ -748,9 +748,18 @@ namespace TankRig
 
         // ------------------------------------------------------------------ turret / gun
 
+        /// <summary>Keep the turret and the gun where they point now (free look: the camera turns, they do not). Not saved.</summary>
+        [System.NonSerialized] public bool holdTurret;
+
         void Aim(float dt)
         {
-            if (!useExternalInput && aimSource != null && aimSource.HasAim)
+            if (holdTurret)
+            {
+                // aim along the gun as it is: the turret and the gun stay put on the hull
+                Transform m = muzzle ? muzzle : gun ? gun : turret;
+                if (m) AimPoint = m.position + m.forward * 1000f;
+            }
+            else if (!useExternalInput && aimSource != null && aimSource.HasAim)
                 AimPoint = aimSource.AimPoint;
             else if (useExternalInput || !aimCamera)
                 AimPoint = externalAimPoint != Vector3.zero ? externalAimPoint : transform.position + transform.forward * 100f;

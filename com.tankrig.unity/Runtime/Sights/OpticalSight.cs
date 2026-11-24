@@ -23,6 +23,7 @@ namespace TankRig.Sights
         public OpticalSightProfile Profile => profile ? profile : fallback ? fallback : fallback = ScriptableObject.CreateInstance<OpticalSightProfile>();
         public override SightProfile BaseProfile => Profile;
         public override string HelpKeys => "N: 照明";
+        public override bool GunFixed => fixedToGun;
         public int ZoomIndex { get => zoomIndex; set => zoomIndex = Mathf.Clamp(value, 0, Mathf.Max(0, Profile.zoom.Length - 1)); }
         bool Linked => Profile.lineOfSight == LineOfSight.GunLinked;
 
@@ -38,12 +39,19 @@ namespace TankRig.Sights
         public override void Enter(Camera cam, Vector3 aim)
         {
             illuminated = Profile.illuminated;
+            fovNow = CameraFov(Zoom);
+            cam.nearClipPlane = Profile.nearClip;
+            if (fixedToGun)
+            {
+                EnterGunFixed();
+                aimPoint = rig.AimAlong(GunPivot, gunCommand, Profile.aimRange);
+                hasAim = true;
+                return;
+            }
             Vector3 d = aim - EyePosition(Linked);
             if (d.sqrMagnitude < 1f) d = GunForward();
             yaw = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
             pitch = -Mathf.Asin(Mathf.Clamp(d.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
-            fovNow = CameraFov(Zoom);
-            cam.nearClipPlane = Profile.nearClip;
         }
 
         public override void Steer(TankInputState input, float dt)
@@ -56,6 +64,12 @@ namespace TankRig.Sights
                 else rig.ManualRange = Mathf.Clamp(rig.ManualRange + Mathf.Sign(input.scroll) * 100f, 0f, 9900f);
             }
             float s = ScaledSensitivity(p, fovNow > 0f ? fovNow : 20f);
+            if (fixedToGun)
+            {
+                aimPoint = SteerGun(input.look, s, fovNow > 0f ? fovNow : 20f, p.aimRange);
+                hasAim = true;
+                return;
+            }
             yaw += input.look.x * s;
             pitch = Mathf.Clamp(pitch - input.look.y * s, -30f, 40f);
             Vector3 dir = Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
@@ -67,19 +81,27 @@ namespace TankRig.Sights
         {
             fovNow = Mathf.Lerp(fovNow < 0f ? CameraFov(Zoom) : fovNow, CameraFov(Zoom), 1f - Mathf.Exp(-14f * dt));
             cam.fieldOfView = fovNow;
-            Vector3 eye = EyePosition(Linked);
+            Vector3 eye;
             Quaternion rot;
-            if (Linked)
+            if (fixedToGun) MountPose(out eye, out rot);   // fixed to the gun: only the gun moves it
+            else if (Linked)
             {
                 // the sight is fixed to the gun: it shows where the gun points, rolling with the turret
+                eye = EyePosition(true);
                 rot = rig.TurretFrame(true);
             }
-            else rot = Quaternion.Euler(pitch, yaw, 0f);
+            else { eye = EyePosition(false); rot = Quaternion.Euler(pitch, yaw, 0f); }
             cam.transform.SetPositionAndRotation(eye, rot);
+        }
+
+        public override void Exit(Camera cam)
+        {
+            if (fixedToGun && hideOwnTank) rig.SetOwnTankHidden(false);
         }
 
         public override void LookAt(Vector3 point)
         {
+            if (fixedToGun) { CommandGunAt(point); aimPoint = point; hasAim = true; return; }
             Vector3 d = point - EyePosition(Linked);
             if (d.sqrMagnitude < 1e-4f) return;
             yaw = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
@@ -128,7 +150,7 @@ namespace TankRig.Sights
             if (p.style == ReticleStyle.Western) Western(g, p, U, lw, line);
             else Soviet(g, p, U, lw, line, upt, unitRad);
 
-            if (p.showGunMarker && !Linked && rig.tank)
+            if (p.showGunMarker && !Linked && !fixedToGun && rig.tank)
             {
                 float dist = Vector3.Distance(rig.GunOrigin, aimPoint);
                 if (Project(cam, rig.GunOrigin + rig.GunDirection * dist - cam.transform.position, upt, out var gp) && gp.magnitude < r)

@@ -28,6 +28,10 @@ namespace TankRig
         public bool illumination;   // N (this frame): reticle illumination
         public bool designate;      // G (this frame): designate / release a target (helmet sight)
         public int ammoSelect;      // 1-4 (this frame), 0 = none
+        public bool freeLook;       // C (held): the turret stays put, the camera looks round freely
+        public bool freeLookPressed;// C (this frame)
+        public bool sight;          // Shift (this frame): into / out of the aiming sight
+        public bool sightHeld;      // Shift (held)
     }
 
     /// <summary>Something that tells the tank where to aim instead of its camera (a sight).</summary>
@@ -61,6 +65,10 @@ namespace TankRig
                 s.designate = k.gKey.wasPressedThisFrame;
                 s.ammoSelect = k.digit1Key.wasPressedThisFrame ? 1 : k.digit2Key.wasPressedThisFrame ? 2
                     : k.digit3Key.wasPressedThisFrame ? 3 : k.digit4Key.wasPressedThisFrame ? 4 : 0;
+                s.freeLook = k.cKey.isPressed;
+                s.freeLookPressed = k.cKey.wasPressedThisFrame;
+                s.sight = k.leftShiftKey.wasPressedThisFrame || k.rightShiftKey.wasPressedThisFrame;
+                s.sightHeld = k.leftShiftKey.isPressed || k.rightShiftKey.isPressed;
             }
             if (m != null)
             {
@@ -90,6 +98,10 @@ namespace TankRig
             s.designate = Input.GetKeyDown(KeyCode.G);
             s.ammoSelect = Input.GetKeyDown(KeyCode.Alpha1) ? 1 : Input.GetKeyDown(KeyCode.Alpha2) ? 2
                 : Input.GetKeyDown(KeyCode.Alpha3) ? 3 : Input.GetKeyDown(KeyCode.Alpha4) ? 4 : 0;
+            s.freeLook = Input.GetKey(KeyCode.C);
+            s.freeLookPressed = Input.GetKeyDown(KeyCode.C);
+            s.sight = Input.GetKeyDown(KeyCode.LeftShift) || Input.GetKeyDown(KeyCode.RightShift);
+            s.sightHeld = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
             s.look = new Vector2(Input.GetAxisRaw("Mouse X"), Input.GetAxisRaw("Mouse Y")) * 10f;
             s.scroll = Input.mouseScrollDelta.y;
             s.fireMain = Input.GetMouseButtonDown(0);

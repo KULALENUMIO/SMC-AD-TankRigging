@@ -132,6 +132,8 @@ Shader "Hidden/TankRig/Flash"
         float size = p.width * (1.0 + p.grow * ((t == 8 && p.extra.y > 0.5) ? sqrt(p.age01) : p.age01));   // billowing dust: fast, then slow
         float3 camAbs = GetAbsolutePositionWS(float3(0, 0, 0));
         float3 P;
+        int role = t == 10 ? (int)(p.extra.x * 0.1 + 0.05) : 0;   // baked cards: 0 alone, 1 side-on with a top-down partner, 2 that partner
+        float viewW = 1.0;
         if (t == 1 || t == 2 || t == 6 || t == 11 || t == 12)
         {
             // streak from its root along the axis, turned to face the camera around that axis
@@ -151,6 +153,27 @@ Shader "Hidden/TankRig/Flash"
             float a = t == 10 ? p.extra2.x : p.seed * 2.39996;   // sprites: the emitter's angle only (baked cards stand upright, ground down)
             float asp = t == 10 ? _GF_Grid[(int)(p.extra.y + 0.5)].w : 0.0;   // sprites: the flipbook's height / width (0 = square)
             float2 cc = float2(c.x, c.y * (asp > 0.0 ? asp : 1.0));
+            // baked cards with a top-down partner (extra.x 1x: side-on, 2x: from above): cross-faded by how steeply the
+            // camera looks down at the card; the one not seen collapses (no fill)
+            if (role > 0)
+            {
+                float sv = abs(normalize(camAbs - p.pos).y);
+                float wTop = smoothstep(0.36, 0.72, sv);   // about 21 .. 46 degrees down
+                viewW = role == 2 ? wTop : 1.0 - wTop;
+            }
+            if (role == 2)
+            {
+                // from above: a flat card on the ground's plane, down the bore (shorter for a raised gun) and across
+                float yaw2 = abs(p.extra2.w) - 10.0;
+                float3 fl = float3(cos(yaw2), 0, sin(yaw2)), sd = float3(-sin(yaw2), 0, cos(yaw2));
+                float2 c2 = float2(c.x * max(cos(p.delay), 0.3), c.y * (asp > 0.0 ? asp : 1.0));
+                P = p.pos + (fl * c2.x + sd * c2.y) * size * step(0.002, viewW);
+                o.uv = c;
+                float ra = atan2(dot(fl, UNITY_MATRIX_V[1].xyz), dot(fl, UNITY_MATRIX_V[0].xyz));
+                o.rot = float2(cos(ra), sin(ra));
+            }
+            else
+            {
             // oriented sprites (a card baked side-on along a direction, extra2.w = +-(10 + yaw), elevation in 'delay'):
             // seen down that direction the card narrows towards square (+ only; - keeps its width: round things like the
             // ground dust); a raised direction tilts the card the way it runs on screen (not when seen along it)
@@ -173,18 +196,20 @@ Shader "Hidden/TankRig/Flash"
                 a += px < 0.0 ? -tilt : tilt;   // mirrored cards turn the other way
             }
             float2 r = float2(cc.x * cos(a) - cc.y * sin(a), cc.x * sin(a) + cc.y * cos(a));
-            P = p.pos + (UNITY_MATRIX_V[0].xyz * r.x + UNITY_MATRIX_V[1].xyz * r.y) * size;
+            P = p.pos + (UNITY_MATRIX_V[0].xyz * r.x + UNITY_MATRIX_V[1].xyz * r.y) * size * step(0.002, viewW);
             o.uv = c;
             o.rot = float2(cos(a), sin(a));
+            }
         }
         float3 rws = GetCameraRelativePositionWS(P);
         o.positionCS = TransformWorldToHClip(rws);
         o.viewDepth = -TransformWorldToView(rws).z;
         o.wpos = P;
-        o.info = float4(t, p.age01, p.seed, p.intensity);
+        o.info = float4(t, p.age01, p.seed, p.intensity * viewW);
         o.info2 = float4(p.axis, 0);
         o.extra = p.extra;
         o.extra2 = p.extra2;
+        if (t == 8 && p.extra.y > 0.5) o.extra2.xyz = p.pos - p.extra2.xyz;   // blast dust: how far the puff has moved (extra2 = where it started)
         o.elev = (t == 10 && abs(p.extra2.w) > 1.0) ? p.delay : 0.0;
         if (t == 10)
         {
@@ -194,7 +219,8 @@ Shader "Hidden/TankRig/Flash"
             float f = clamp(p.length, 0.0, frames - 1.0);   // the source sets the frame (life curve, random start)
             float fa = floor(f);
             float flip = (float)(uint)(frac(p.seed * 7.31) * 4.0);   // random mirroring in x / y (bits)
-            if (abs(p.extra2.w) > 1.0)
+            if (role == 2) flip = (float)((uint)flip & 2u);   // flat from above: mirrored across the bore at random, never along it
+            else if (abs(p.extra2.w) > 1.0)
             {
                 // oriented: never upside down; mirrored when its direction points left on screen - not at once: around
                 // looking along it the two ways cross-fade (w = how much of the unmirrored one), stored as -(1 + w)
@@ -233,7 +259,7 @@ Shader "Hidden/TankRig/Flash"
     float4 ShadeSprite(V2F i, float sceneZ)
     {
         int slice = (int)(i.extra.y + 0.5);
-        int lmode = (int)(i.extra.x + 0.5);
+        int lmode = (int)(fmod(i.extra.x, 10.0) + 0.5);   // (tens: side-on / top-down partner)
         float2 q = i.uv;                                   // -1..1 across the card (already rotated with it)
         // oriented cards (frame.w < 0) cross-fade between their two mirror images; others use their flip bits
         bool oriented = i.frame.w < -0.5;
@@ -256,7 +282,13 @@ Shader "Hidden/TankRig/Flash"
         // coverage: plain, or an alpha threshold that eats the thin parts first as the opacity drops (erosion)
         float a = i.extra.w > 0.5 ? saturate(A.r - (1.0 - opacity)) : A.r * opacity;
         // a card baked against the ground (flat-bottomed where the gas met it), raised into the air: no hard bottom edge
-        if (i.extra2.w < 0.0) a *= lerp(1.0, smoothstep(-1.0, -0.3, q.y), saturate(i.elev / 0.35));   // (- cards: the cloud)
+        if (i.extra2.w < 0.0 && i.extra.x < 19.5) a *= lerp(1.0, smoothstep(-1.0, -0.3, q.y), saturate(i.elev / 0.35));   // (- cards: the cloud)
+        // the same edge on the ground, looked down on: low, the ground hides it; from higher up it would draw a ruler line
+        if (i.extra2.w < 0.0 && i.extra.x > 9.5 && i.extra.x < 19.5)
+        {
+            float sv = abs(normalize(GetAbsolutePositionWS(float3(0, 0, 0)) - i.wpos).y);
+            a *= lerp(1.0, smoothstep(-1.0, -0.45, q.y), smoothstep(0.15, 0.45, sv));
+        }
         // fades: where it meets surfaces, and near the camera
         float soft = saturate((sceneZ - i.viewDepth) / max(i.extra2.y, 0.05));
         float nearF = saturate((i.viewDepth - 0.3) / max(i.extra2.z, 0.05));
@@ -404,23 +436,28 @@ Shader "Hidden/TankRig/Flash"
         {
             float r = length(uv);
             float tt = age;
-            // the lumps grow out with the puff and roll up a little; domain warp for cauliflower folds
-            float3 np = float3(uv * (1.7 - 0.6 * tt), seed * 0.37) + float3(0.0, -tt * 0.7, tt * 0.4);
-            float2 warp = float2(MBNoise(np * 1.3 + 3.1), MBNoise(np * 1.3 + 7.7)) - 0.5;
-            float n1 = MBFbm(np + float3(warp * 0.9, 0.0));
-            float n2 = MBNoise(np * 4.3 + 11.0);
-            float dens = (1.0 - r) * 1.5 + (n1 - 0.5) * 1.7 + (n2 - 0.5) * 0.4;
-            float thr = tt * tt * 0.6;                                        // eaten from the thin parts as it dissipates
-            float d = saturate((dens - thr) * 1.7) * smoothstep(1.0, 0.72, r);   // translucent inside, not a solid lump
+            // the structure lives in the world, carried along with the puff (extra2.xyz: how far it has moved): puffs
+            // that overlap share their lumps and wisps and run together into one cloud instead of a heap of balls.
+            // Lumps of about 2 m, folds of 40 cm, wisps of 15 cm; slowly churning (shared clock, so they stay matched)
+            float3 wp = i.wpos - i.extra2.xyz;
+            float3 np = wp * 0.5 + float3(0.0, -_Time.y * 0.12, _Time.y * 0.07);
+            float3 warp = float3(MBNoise(np * 1.1 + 3.1), MBNoise(np * 1.1 + 7.7), MBNoise(np * 1.1 + 1.9)) - 0.5;
+            float n1 = MBFbm(np + warp * 0.9);
+            float n2 = MBNoise(wp * 2.4 + warp * 1.5 + 11.0);
+            float n3 = MBNoise(wp * 6.5 + warp * 2.0 + 5.0);
+            float body = exp(-r * r * 2.4);                                   // a soft body: neighbours blend, no rim
+            float dens = body * 1.35 + (n1 - 0.5) * 1.3 + (n2 - 0.5) * 0.6 + (n3 - 0.5) * 0.35;
+            float thr = tt * tt * 0.6 + (1.0 - body) * 0.3;                   // eaten from the thin parts as it dissipates, most at the edge (wisps)
+            float d = saturate((dens - thr) * 1.6) * smoothstep(1.0, 0.55, r);   // translucent inside, not a solid lump
             float softD = saturate((sceneZ - i.viewDepth) / 1.2);
             float hold = i.extra.x;
             float fade = hold > 0.0 ? 1.0 - smoothstep(hold, 1.0, tt) : 1.0;
-            float a = saturate(I * d * fade * smoothstep(0.0, 0.03, tt) * softD);
+            float a = saturate(I * d * fade * smoothstep(0.0, 0.008, tt) * softD);   // there at once (with the shot), not faded in
             float3 V0 = UNITY_MATRIX_V[0].xyz, V1 = UNITY_MATRIX_V[1].xyz, V2 = UNITY_MATRIX_V[2].xyz;
-            float3 nrm = normalize(V0 * (uv.x + warp.x * 0.9) + V1 * (uv.y + warp.y * 0.9) + V2 * sqrt(saturate(1.0 - r * r)) * 0.6);
+            float3 nrm = normalize(V0 * (uv.x + warp.x * 0.9) + V1 * (uv.y + warp.y * 0.9) + V2 * sqrt(saturate(1.0 - r * r)) * 0.6);   // (lumps lit as lumps)
             float ndl = saturate(dot(nrm, _GF_SunDir.xyz) * 0.65 + 0.35);
             float ao = lerp(0.5, 1.0, saturate(uv.y * 0.5 + 0.5)) * lerp(0.65, 1.0, n1);   // the underside and the folds are darker
-            float3 albedo = saturate(i.info2.xyz) * (0.82 + 0.36 * n2);
+            float3 albedo = saturate(i.info2.xyz) * (0.84 + 0.22 * n2 + 0.12 * n3);
             float3 col = albedo * (_GF_SunLux.rgb * ndl * FomSelf(i.wpos) / PI + _GF_Ambient.rgb * 0.85 * ao);
             return float4(col * a * ex, a);
         }
@@ -544,7 +581,7 @@ Shader "Hidden/TankRig/Flash"
         float2 c = cs[vid % 6];
         int t = (int)(p.type + 0.5);
         V2S o = (V2S)0;
-        if (!CastsShadow(t) || p.intensity <= 0.0) { o.positionCS = float4(0, 0, -2, 1); return o; }
+        if (!CastsShadow(t) || p.intensity <= 0.0 || (t == 10 && p.extra.x > 19.5)) { o.positionCS = float4(0, 0, -2, 1); return o; }   // (top-down cards: the side-on one shades)
         float size = p.width * (1.0 + p.grow * ((t == 8 && p.extra.y > 0.5) ? sqrt(p.age01) : p.age01));   // billowing dust: fast, then slow
         float2 cc = c;
         if (t == 10)

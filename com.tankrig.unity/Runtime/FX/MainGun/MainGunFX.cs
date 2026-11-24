@@ -58,15 +58,15 @@ namespace TankRig.FX
         [Tooltip("the dust cloud: kept thin (the footage never hides the tank)")] [Range(0f, 1f)] public float dustOpacity = 0.3f;
         [Tooltip("nits of the fireball at full temperature")] public float fireballRadiance = 6e5f;
         [Header("Dust on the tank")]
-        [Tooltip("puffs off the hull per shot (with a full load of dust)")] public int hullDustPuffs = 45;
+        [Tooltip("puffs off the hull per shot (with a full load of dust)")] public int hullDustPuffs = 110;
         [Range(0f, 1f)] public float hullDustOpacity = 0.3f;
         [Tooltip("s: how long the hull takes to gather its dust again standing still (driving: faster)")] public float hullDustRecover = 30f;
         [Header("Bore smoke (after the shot)")]
         [Tooltip("s: how long smoke keeps coming out of the bore")] public float boreSmokeTime = 4f;
         [Tooltip("streaks per second right after the fire (falls off to none): stretched by their speed they join into one jet")] public float boreSmokeRate = 200f;
-        [Tooltip("m: jet thickness at the muzzle (x the calibre's; it swells about 4x)")] public float boreSmokeSize = 0.12f;
+        [Tooltip("m: jet thickness at the muzzle (x the calibre's; it swells about 4x)")] public float boreSmokeSize = 0.084f;
         [Tooltip("m/s: jet speed out of the bore right after the fire (falls off with the gas pressure)")] public float boreSmokeSpeed = 30f;
-        [Tooltip("s: streak length = speed x this (longer: a more continuous jet)")] public float boreSmokeStretch = 0.12f;
+        [Tooltip("s: streak length = speed x this (longer: a more continuous jet)")] public float boreSmokeStretch = 0.084f;
         [Range(0f, 1f)] public float boreSmokeOpacity = 0.6f;
         [Tooltip("ground colour of the dust (alpha 0 = the tank's dust colour from TankDustFX, else dry soil)")] public Color dustColor = new Color(0f, 0f, 0f, 0f);
         public MainGunControls fx = new MainGunControls();
@@ -441,28 +441,30 @@ namespace TankRig.FX
         void GroundAlongTank(Vector3 muzzlePos, Vector3 under, Vector3 bore, float s, Color col, float shift = 0f)
         {
             Vector3 side = Vector3.Cross(Vector3.up, bore);
-            int n = Mathf.RoundToInt(28 * fx.shockDust.amount * (0.5f + 0.5f * surfaceGroundK));
+            // many smaller, thinner puffs laid evenly along each side (and across the back) so they overlap into one
+            // rolling band instead of separate lumps; neighbours start alike so they move off together
+            int n = Mathf.RoundToInt(64 * fx.shockDust.amount * (0.5f + 0.5f * surfaceGroundK));
             for (int i = 0; i < n; i++)
             {
                 // a strip just outside each side of the hull, from its rear to the muzzle, and a patch behind it
-                float u = Mathf.Lerp(footBack - 2.5f, Mathf.Max(footFront, footBack + 1f), R());
+                float sd = (i & 1) == 0 ? -1f : 1f;
+                float u = Mathf.Lerp(footBack - 2.5f, Mathf.Max(footFront, footBack + 1f), ((i >> 1) + R()) / Mathf.Max(1, (n + 1) >> 1));
                 bool behind = u < footBack;
-                float sd = R() < 0.5f ? -1f : 1f;
-                float wAcross = behind ? (R() * 2f - 1f) * footHalf : sd * (footHalf + 0.05f + 2.0f * R() * R());   // most right by the tracks
+                float wAcross = behind ? (R() * 2f - 1f) * footHalf : sd * (footHalf + 0.05f + 1.4f * R() * R());   // most right by the tracks
                 Vector3 p = under + bore * u + side * wAcross;
                 if (Physics.Raycast(p + Vector3.up * 3f, Vector3.down, out var hit, 8f, ~0, QueryTriggerInteraction.Ignore) && !(tank && hit.collider.transform.IsChildOf(tank)))
                     p.y = hit.point.y;
                 float d = Vector3.Distance(p, muzzlePos);
                 float strength = 1f / (1f + (d / (5f * s)) * (d / (5f * s)));
                 Vector3 outDir = behind ? -bore : (side * Mathf.Sign(wAcross) * 0.8f - bore * 0.6f).normalized;   // out from the hull, back along it
-                Vector3 v = outDir * (12f + 22f * R()) * (0.4f + 0.6f * strength) * Mathf.Sqrt(s) + Vector3.up * (0.5f + 1.3f * R()) * (0.5f + 0.5f * strength);
+                Vector3 v = outDir * (17f + 10f * R()) * (0.4f + 0.6f * strength) * Mathf.Sqrt(s) + Vector3.up * (0.6f + 0.8f * R()) * (0.5f + 0.5f * strength);
                 Add(new GunFlashFX.Particle
                 {
-                    pos = p + Vector3.up * 0.3f, type = (float)GunFlashFX.PType.Dust, axis = new Vector3(col.r, col.g, col.b),
-                    width = (0.9f + 0.6f * R()) * Mathf.Sqrt(s), grow = 2.2f + 1.0f * R(),
-                    intensity = Mathf.Min(1f, (0.42f + 0.22f * R()) * (0.5f + 0.5f * strength) * dustOpacity / 0.6f), seed = R() * 100f, life = 1f,
+                    pos = p + Vector3.up * 0.25f, type = (float)GunFlashFX.PType.Dust, axis = new Vector3(col.r, col.g, col.b),
+                    width = (0.65f + 0.35f * R()) * Mathf.Sqrt(s), grow = 2.4f + 0.8f * R(),
+                    intensity = Mathf.Min(1f, (0.27f + 0.12f * R()) * (0.5f + 0.5f * strength) * dustOpacity / 0.6f), seed = R() * 100f, life = 1f,
                     extra = new Vector4(0.3f, 1f, 0f, 0f)
-                }, Mathf.Max(0f, fx.shockDust.delay + d / 340f + 0.02f * R() - shift), (3.5f + 2.5f * R()) * fx.shockDust.duration, v, 5f, 1f, behind ? 0.6f : 0.25f);   // lingers; behind the hull it climbs
+                }, Mathf.Max(0f, fx.shockDust.delay + d / 900f + 0.01f * R() - shift), (3.5f + 2.5f * R()) * fx.shockDust.duration, v, 5f, 1f, behind ? 0.6f : 0.25f);   // lingers; behind the hull it climbs
             }
         }
 
@@ -473,11 +475,13 @@ namespace TankRig.FX
             if (exposedCount == 0 || hullLoad <= 0.02f) return;
             int want = Mathf.RoundToInt(hullDustPuffs * fx.hullDust.amount * hullLoad * (0.6f + 0.4f * surfaceGroundK));
             if (want <= 0) return;
-            // exposed points facing up, the stronger the nearer the muzzle; dusty and clean patches
-            int made = 0;
-            for (int k = 0; k < want * 8 && made < want; k++)
+            // exposed points facing up, the stronger the nearer the muzzle; dusty and clean patches. Picked evenly over
+            // the whole top (the points are stored row by row: a jittered sweep covers it without gaps or clumps), many
+            // small thin puffs that overlap into a veil coming off the surfaces
+            int made = 0, tries = want * 3;
+            for (int k = 0; k < tries * 3 && made < want; k++)
             {
-                int pick = rng.Next(exposedCount);   // anywhere on the top (the points are stored row by row: no runs)
+                int pick = Mathf.Min(exposedCount - 1, (int)(((k % tries) + R()) / tries * exposedCount));
                 var w = exposedP[pick];
                 var n = exposedN[pick];
                 float d = Vector3.Distance(w, muzzlePos);
@@ -491,10 +495,10 @@ namespace TankRig.FX
                 Add(new GunFlashFX.Particle
                 {
                     pos = w + n * 0.05f + new Vector3(R() - 0.5f, 0f, R() - 0.5f) * 0.3f, type = (float)GunFlashFX.PType.Dust, axis = new Vector3(col.r, col.g, col.b),
-                    width = (0.3f + 0.25f * R()) * Mathf.Sqrt(s), grow = 2.5f + 1.2f * R(),
-                    intensity = Mathf.Min(1f, hullDustOpacity * (0.7f + 0.5f * R()) * (0.5f + 0.5f * strength)), seed = R() * 100f, life = 1f,
+                    width = (0.22f + 0.15f * R()) * Mathf.Sqrt(s), grow = 2.8f + 1.0f * R(),
+                    intensity = Mathf.Min(1f, hullDustOpacity * (0.42f + 0.3f * R()) * (0.5f + 0.5f * strength)), seed = R() * 100f, life = 1f,
                     extra = new Vector4(0.15f, 1f, 0f, 0f)
-                }, Mathf.Max(0f, fx.hullDust.delay + d / 340f + 0.01f * R() - shift), (1.6f + 1.4f * R()) * fx.hullDust.duration, v, 3.5f, 1f, 0.35f);
+                }, Mathf.Max(0f, fx.hullDust.delay + d / 900f + 0.008f * R() - shift), (1.6f + 1.4f * R()) * fx.hullDust.duration, v, 3.5f, 1f, 0.35f);
             }
             hullLoad = Mathf.Max(0f, hullLoad - 0.55f);   // most of it is gone now
         }
@@ -587,10 +591,10 @@ namespace TankRig.FX
             curKind = "shock";
             if (c.shockDust.On && ground)
             {
-                int n = Mathf.RoundToInt(14 * c.shockDust.amount * groundK);
+                int n = Mathf.RoundToInt(32 * c.shockDust.amount * groundK);
                 for (int i = 0; i < n; i++)
                 {
-                    float ang = (R() * 2f - 1f) * 150f;
+                    float ang = (((i + R()) / n) * 2f - 1f) * 150f;   // evenly round: a continuous ring, not clumps
                     Vector3 dir = Quaternion.AngleAxis(ang, up) * bore;
                     float r0 = (0.8f + 2f * R()) * s;
                     Vector3 pos = under + dir * r0 + up * 0.25f * s;
@@ -599,9 +603,9 @@ namespace TankRig.FX
                     Add(new GunFlashFX.Particle
                     {
                         pos = pos, type = (float)GunFlashFX.PType.Dust, axis = new Vector3(dust.r, dust.g, dust.b),
-                        width = (1.0f + 0.6f * R()) * s, grow = 2.2f + 1.0f * R(), intensity = Mathf.Min(1f, (0.48f + 0.25f * R()) * dustOpacity / 0.6f), seed = R() * 100f, life = 1f,
+                        width = (0.7f + 0.4f * R()) * s, grow = 2.4f + 0.8f * R(), intensity = Mathf.Min(1f, (0.3f + 0.15f * R()) * dustOpacity / 0.6f), seed = R() * 100f, life = 1f,
                         extra = new Vector4(0.25f, 1f, 0f, 0f)   // billow mode; holds the first quarter of its life
-                    }, c.shockDust.delay + 0.06f + r0 / 340f + 0.03f * R(), (2.5f + 1.5f * R()) * c.shockDust.duration, dir * v + up * (0.6f + 1.4f * R()), 6f, 1f, 0.25f);
+                    }, c.shockDust.delay + 0.01f + r0 / 900f + 0.015f * R(), (2.5f + 1.5f * R()) * c.shockDust.duration, dir * v + up * (0.6f + 1.4f * R()), 6f, 1f, 0.25f);
                 }
             }
             // dust shaken off the tank, and raised off the ground along it: from the tank's real top surface (GPU height
@@ -650,18 +654,35 @@ namespace TankRig.FX
             var tm = at.timing[slice];
             if (recordSources) DebugSources.Add((curKind, pos, opacity, half));
             float life = Mathf.Max((tm.y - tm.x) / Mathf.Max(rate, 0.05f), 0.02f);
+            // a card baked side-on stands up like a wall seen from above: where the atlas has the top-down view, both go
+            // out and the shader cross-fades them by how steeply the camera looks down (extra.x: 10 side, 20 top + lighting)
+            int top = at.top[slice];
+            float role = top >= 0 ? 10f : 0f;
+            int first = puffs.Count;
             puffs.Add(new Puff
             {
                 p = new GunFlashFX.Particle
                 {
                     pos = pos, type = (float)GunFlashFX.PType.Sprite, axis = new Vector3(albedo.r, albedo.g, albedo.b), width = half, seed = R() * 100f, life = 1f,
                     delay = elev,   // the card's direction's elevation (rad; the shader tilts it) - the puff's own delay is separate
-                    extra = new Vector4(3f, slice, emission, 0f),
+                    extra = new Vector4(3f + role, slice, emission, 0f),
                     extra2 = new Vector4((R() - 0.5f) * 0.08f, slice == FlashAtlas.SliceDust ? 1.5f : 0.6f, 1.0f, (narrowAlong ? 1f : -1f) * (10f + Mathf.Repeat(yaw + Mathf.PI, 2f * Mathf.PI) - Mathf.PI)),
                 },
                 delay = delay + tm.x / Mathf.Max(rate, 0.05f), life = life, slice = slice, bake0 = tm.x, rate = rate,
                 opacity = opacity, fadeIn = fadeIn, fadeOut = fadeOut, drag = drag, windK = windK, rise = rise,
             });
+            if (top < 0) return;
+            // the top-down card: the same puff, flat, at its own height (the bake's card height, scaled like the card)
+            var q = puffs[first];
+            float k = half / Mathf.Max(tm.w, 1e-3f);
+            q.p.pos = pos + Vector3.up * (at.place[top].y - at.place[slice].y) * k;
+            q.p.width = half * at.timing[top].w / Mathf.Max(tm.w, 1e-3f);
+            q.p.extra.x = 3f + 20f;
+            q.p.extra.y = top;
+            q.p.extra2.y = slice == FlashAtlas.SliceDust ? 1.0f : 0.6f;
+            q.p.seed = R() * 100f;
+            q.slice = top;
+            puffs.Add(q);
         }
 
         void Add(GunFlashFX.Particle p, float delay, float life, Vector3 vel, float drag, float windK, float rise = 0f)
@@ -671,7 +692,10 @@ namespace TankRig.FX
             if (rise != 0f) { var q = puffs[puffs.Count - 1]; q.rise = rise; puffs[puffs.Count - 1] = q; }
         }
         void AddPuff(GunFlashFX.Particle p, float delay, float life, Vector3 vel, float drag, float windK)
-            => puffs.Add(new Puff { p = p, delay = delay, life = Mathf.Max(life, 0.02f), slice = -1, opacity = p.intensity, vel = vel, drag = drag, windK = windK });
+        {
+            if (p.type == (float)GunFlashFX.PType.Dust && p.extra.y > 0.5f) p.extra2 = new Vector4(p.pos.x, p.pos.y, p.pos.z, 0f);   // billow dust: where it started
+            puffs.Add(new Puff { p = p, delay = delay, life = Mathf.Max(life, 0.02f), slice = -1, opacity = p.intensity, vel = vel, drag = drag, windK = windK });
+        }
 
         Color DustColour()
         {

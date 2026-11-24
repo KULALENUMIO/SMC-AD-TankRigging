@@ -6,7 +6,10 @@
 // moved by the field (real geometry: silhouette, self-shadowing), the pixel shader bends normals, darkens and wets
 // the pressed floor, tears turf to soil in the grouser bites and darkens the cavities.
 // The whole ground is lifted by the rut depth so the ruts go down to where the tank actually stands.
-// Needs a ground mesh fine enough to tessellate (~1-2 m triangles); Unity Terrain is not handled (its own shader).
+// The footprint: width, side position and height from the links on the bottom run; the length from the road wheels -
+// each frame from the first to the last of them on the ground (not the links curving up round the sprocket and the
+// idler, not a wheel lifted over a bump); along the track the rut ends where the contact ends (no shoulder ahead or
+// behind). Ground: a mesh fine enough to tessellate (~1-2 m triangles), or a Unity Terrain (TerrainRuts shader).
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -32,7 +35,7 @@ namespace TankRig.FX
         [Tooltip("m: grouser bite below the floor at softness 1")] public float maxBite = 0.03f;
 
         [Header("Track footprint")]
-        [Tooltip("measure the footprint from the track's own links on the bottom run (width, length, side position, height); off = from the track's box")] public bool autoFit = true;
+        [Tooltip("measure the footprint from the track's own links on the bottom run (width, side position, height) and its length from the road wheels (first to last, each frame only those on the ground); off = from the track's box")] public bool autoFit = true;
         [Tooltip("share of the track box's length that touches the ground (only without autoFit)")] [Range(0.4f, 1f)] public float contactScale = 0.78f;
         [Tooltip("share of the track's width pressed")] [Range(0.5f, 1.2f)] public float widthScale = 1f;
         [Tooltip("m: link pitch (one grouser per pitch); 0 = from the track")] public float pitch = 0f;
@@ -61,6 +64,12 @@ namespace TankRig.FX
         Vector3[] last = new Vector3[0]; bool[] hasLast = new bool[0];
         float pitchM = 0.2f;
         bool[] fitted = new bool[0]; int[] fitLinks = new int[0];
+        // the road wheels of each track (TankTrack): the contact runs from the first to the last of them on the ground
+        TankTrack[] trackComp = new TankTrack[0];
+        List<TankTrack.Wheel>[] roadWheels = new List<TankTrack.Wheel>[0];
+        int[] wheelsDown = new int[0];
+        // the last stamp of each track: a tank standing still does not stamp the same rut again every frame
+        Vector4[] lastStamp = new Vector4[0]; bool[] hasStamp = new bool[0];
         float refitTimer;
         readonly List<(Renderer r, Material orig, Material deform)> swapped = new List<(Renderer, Material, Material)>();
         readonly List<(Terrain t, Material orig, Material deform)> swappedTerrains = new List<(Terrain, Material, Material)>();
@@ -123,6 +132,7 @@ namespace TankRig.FX
 
         public void ClearField()
         {
+            for (int k = 0; k < hasStamp.Length; k++) hasStamp[k] = false;   // stamp again (also a tank standing still)
             if (!field) return;
             var prev = RenderTexture.active; RenderTexture.active = field; GL.Clear(false, true, Color.clear);
             if (occ) { RenderTexture.active = occ; GL.Clear(false, true, Color.clear); }
@@ -162,6 +172,8 @@ namespace TankRig.FX
             sideLocal = Vector3.Cross(upLocal, fwdLocal);
             int n = tracks.Length;
             contactLocal = new Vector3[n]; halfLen = new float[n]; halfW = new float[n]; fitted = new bool[n]; fitLinks = new int[n];
+            trackComp = new TankTrack[n]; roadWheels = new List<TankTrack.Wheel>[n]; wheelsDown = new int[n];
+            lastStamp = new Vector4[n]; hasStamp = new bool[n];
             if (run.Length != n) { run = new float[n]; last = new Vector3[n]; hasLast = new bool[n]; }
             pitchM = 0.2f;
             foreach (var t in tracks)
@@ -191,6 +203,24 @@ namespace TankRig.FX
                 halfLen[i] = (fMax - fMin) * 0.5f * contactScale;
                 contactLocal[i] = fwdLocal * ((fMin + fMax) * 0.5f) + upLocal * uMin + sideLocal * sc;
                 fitted[i] = autoFit && FitToLinks(root, tracks[i], i);
+                // the length from the road wheels: the belt is pressed into the ground from the first to the last of them
+                // (the links curving up round the sprocket and the idler are not), plus half a link at each end
+                var tt = tracks[i].GetComponent<TankTrack>();
+                trackComp[i] = tt;
+                if (autoFit && tt)
+                {
+                    var roads = new List<TankTrack.Wheel>();
+                    foreach (var w in tt.wheels) if (w != null && w.transform && w.role == TankTrack.WheelRole.Road) roads.Add(w);
+                    if (roads.Count >= 2)
+                    {
+                        roadWheels[i] = roads;
+                        float a = float.MaxValue, b = float.MinValue;
+                        foreach (var w in roads) { float f = Vector3.Dot(root.InverseTransformPoint(w.transform.position), fwdLocal); a = Mathf.Min(a, f); b = Mathf.Max(b, f); }
+                        float halfPitch = tt.pitch * Mathf.Abs(tt.transform.lossyScale.y) * 0.5f;
+                        halfLen[i] = (b - a) * 0.5f + halfPitch;
+                        contactLocal[i] += fwdLocal * ((a + b) * 0.5f - Vector3.Dot(contactLocal[i], fwdLocal));
+                    }
+                }
                 foreach (var c in tracks[i].GetComponents<Component>())
                     if (c && c.GetType().Name == "TankTrack")
                     {
@@ -382,12 +412,36 @@ namespace TankRig.FX
             var terr = Terrain.activeTerrain;
             if (terr) return terr.SampleHeight(p) + terr.transform.position.y;
             float best = float.MaxValue, y = float.NegativeInfinity;
-            foreach (var hit in Physics.RaycastAll(p + Vector3.up * 1.5f, Vector3.down, 4f, ~0, QueryTriggerInteraction.Ignore))
+            int n = Physics.RaycastNonAlloc(p + Vector3.up * 1.5f, Vector3.down, GroundLook.Hits, 4f, ~0, QueryTriggerInteraction.Ignore);   // no garbage per frame
+            for (int k = 0; k < n; k++)
             {
+                var hit = GroundLook.Hits[k];
                 if (ignore && hit.collider.transform.IsChildOf(ignore)) continue;
                 if (hit.distance < best) { best = hit.distance; y = hit.point.y; }
             }
             return y;
+        }
+
+        /// <summary>Of a track's road wheels, the first and the last on the ground, along fwd (world). False: none down.</summary>
+        bool WheelContact(int i, Transform root, Vector3 fwd, out float s0, out float s1)
+        {
+            s0 = float.MaxValue; s1 = float.MinValue;
+            var tt = trackComp[i];
+            float sc = Mathf.Abs(tt.transform.lossyScale.y);
+            Vector3 up = tt.transform.TransformDirection(tt.upLocal).normalized;
+            int down = 0;
+            foreach (var w in roadWheels[i])
+            {
+                if (w == null || !w.transform) continue;
+                // the bottom of the belt under this wheel: its rim, the pitch line offset and the link's ground depth below
+                Vector3 bottom = w.transform.position - up * ((w.radius + tt.pitchLineOffset + tt.linkGroundDepth) * sc);
+                float gy = GroundY(bottom, root);
+                if (float.IsNegativeInfinity(gy) || bottom.y - gy > 0.07f) continue;   // lifted off the ground
+                float s = Vector3.Dot(w.transform.position, fwd);
+                s0 = Mathf.Min(s0, s); s1 = Mathf.Max(s1, s); down++;
+            }
+            wheelsDown[i] = down;
+            return down > 0;
         }
 
         /// <summary>Press the tracks into the field (in play mode Update does it).</summary>
@@ -396,7 +450,12 @@ namespace TankRig.FX
             if (!field || !compute) return;
             // the rig makes its links when it starts playing: measure again once they are there (a second apart)
             refitTimer -= dt;
-            if (autoFit && refitTimer <= 0f && fitted.Any(x => !x)) { refitTimer = 1f; FindTracks(); }
+            if (autoFit && refitTimer <= 0f)
+            {
+                bool all = true;
+                for (int k = 0; k < fitted.Length; k++) all &= fitted[k];
+                if (!all) { refitTimer = 1f; FindTracks(); }
+            }
             var root = tank ? tank : transform;
             float size = WindowSize;
             // keep the window around the tank: move it when the tank is a quarter of the way to its edge
@@ -424,25 +483,43 @@ namespace TankRig.FX
                 Vector3 c = root.TransformPoint(contactLocal[i]);
                 if (hasLast[i]) run[i] += Vector3.Dot(c - last[i], fwd);
                 last[i] = c; hasLast[i] = true;
-                float gy = GroundY(c, root);
-                if (float.IsNegativeInfinity(gy) || c.y - gy > 0.2f) continue;   // in the air: no rut
+                float hl = halfLen[i];
+                if (roadWheels[i] != null)
+                {
+                    // only the road wheels on the ground press it in: from the first to the last of those (a wheel lifted
+                    // over a bump, the hull rocking back as it pulls away - the end of the track off the ground leaves none)
+                    if (!WheelContact(i, root, fwd, out float s0, out float s1)) continue;
+                    float halfPitch = trackComp[i].pitch * Mathf.Abs(trackComp[i].transform.lossyScale.y) * 0.5f;
+                    float mid = (s0 + s1) * 0.5f;
+                    c += fwd * (mid - Vector3.Dot(c, fwd));
+                    hl = (s1 - s0) * 0.5f + halfPitch;
+                }
+                else
+                {
+                    float gy = GroundY(c, root);
+                    if (float.IsNegativeInfinity(gy) || c.y - gy > 0.2f) continue;   // in the air: no rut
+                }
+                // standing still: the rut is already there
+                var stamp = new Vector4(c.x, c.z, Mathf.Atan2(fwd.z, fwd.x), hl);
+                if (hasStamp[i] && (stamp - lastStamp[i]).sqrMagnitude < 1e-6f) continue;
+                lastStamp[i] = stamp; hasStamp[i] = true;
                 float reach = shoulder * 1.3f + bermW * 1.2f + 0.08f;
-                float ex = Mathf.Abs(fwd.x) * (halfLen[i] + reach) + Mathf.Abs(fwd.z) * (halfW[i] + reach);
-                float ez = Mathf.Abs(fwd.z) * (halfLen[i] + reach) + Mathf.Abs(fwd.x) * (halfW[i] + reach);
+                float ex = Mathf.Abs(fwd.x) * (hl + 0.05f) + Mathf.Abs(fwd.z) * (halfW[i] + reach);
+                float ez = Mathf.Abs(fwd.z) * (hl + 0.05f) + Mathf.Abs(fwd.x) * (halfW[i] + reach);
                 int x0 = Mathf.FloorToInt((c.x - ex) / texel), z0 = Mathf.FloorToInt((c.z - ez) / texel);
                 int nx = Mathf.CeilToInt(2f * ex / texel) + 1, nz = Mathf.CeilToInt(2f * ez / texel) + 1;
                 compute.SetInts(idBox, x0, z0, nx, nz);
                 compute.SetVector(idS0, new Vector4(c.x, c.z, fwd.x, fwd.z));
-                compute.SetVector(idS1, new Vector4(halfLen[i], halfW[i], shoulder, bermW));
+                compute.SetVector(idS1, new Vector4(hl, halfW[i], shoulder, bermW));
                 compute.SetVector(idS2, new Vector4(lift, bite, Mathf.Max(pitchM, 0.05f), run[i]));
                 compute.SetVector(idS3, new Vector4(grouserWidth, bermH, i * 17.3f, 0.12f));
-                compute.SetVector(idS4, new Vector4(softness, padGap * 0.5f, padGap > 0f ? 0.35f : 0f, 0f));
+                compute.SetVector(idS4, new Vector4(softness, padGap * 0.5f, padGap > 0f ? 0.35f : 0f, 0.06f + 0.08f * softness));   // w: the press-in at the ends
                 compute.Dispatch(kStamp, (nx + 7) / 8, (nz + 7) / 8, 1);
             }
             PushGlobals();
         }
 
-        public string Stats() => $"ruts: ground {kind}, {swapped.Count} ground renderer(s) + {swappedTerrains.Count} terrain(s) deformed, window {WindowSize:F0} m at {texel * 100f:F0} cm ({resolution}^2 RGHalf, {resolution * (long)resolution * 4 / (1024 * 1024)} MB), depth {lift * 100f:F1} cm, grouser bite {bite * 100f:F1} cm, berm {bermH * 100f:F1} cm x {bermW * 100f:F0} cm, pitch {pitchM:F2} m, tracks {tracks.Length}: " + string.Join(", ", System.Linq.Enumerable.Range(0, halfLen.Length).Select(k => $"[{(k < fitted.Length && fitted[k] ? $"fitted to {fitLinks[k]} links" : "box")}: {halfLen[k] * 2f:F2} x {halfW[k] * 2f:F2} m at side {Vector3.Dot(contactLocal[k], sideLocal):F2}, up {Vector3.Dot(contactLocal[k], upLocal):F2}]"));
+        public string Stats() => $"ruts: ground {kind}, {swapped.Count} ground renderer(s) + {swappedTerrains.Count} terrain(s) deformed, window {WindowSize:F0} m at {texel * 100f:F0} cm ({resolution}^2 RGHalf, {resolution * (long)resolution * 4 / (1024 * 1024)} MB), depth {lift * 100f:F1} cm, grouser bite {bite * 100f:F1} cm, berm {bermH * 100f:F1} cm x {bermW * 100f:F0} cm, pitch {pitchM:F2} m, tracks {tracks.Length}: " + string.Join(", ", System.Linq.Enumerable.Range(0, halfLen.Length).Select(k => $"[{(k < fitted.Length && fitted[k] ? $"fitted to {fitLinks[k]} links" : "box")}{(k < roadWheels.Length && roadWheels[k] != null ? $", length from {roadWheels[k].Count} road wheels ({wheelsDown[k]} down)" : "")}: {halfLen[k] * 2f:F2} x {halfW[k] * 2f:F2} m at side {Vector3.Dot(contactLocal[k], sideLocal):F2}, up {Vector3.Dot(contactLocal[k], upLocal):F2}]"));
 
         void Update() { if (autoAdvance) Tick(Time.deltaTime); }
     }

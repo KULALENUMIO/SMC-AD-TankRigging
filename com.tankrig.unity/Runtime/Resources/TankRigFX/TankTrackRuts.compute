@@ -71,14 +71,17 @@ void Stamp(uint3 id : SV_DispatchThreadID)
     float b = abs(s) - _S1.x;                      // > 0 ahead / behind the contact
     float wall = _S1.z * (0.75 + 0.5 * Noise(float2(along * 3.1, t * 2.0 + 7.0)));
     float lift = _S2.x * (0.85 + 0.3 * Noise(w * 0.45 + 3.0));   // the ground is not equally soft everywhere
+    // along the track the rut ends where the contact ends: the belt presses in over its last few cm (no shoulder
+    // reaching out ahead of or behind the track - that is soil the track never touched)
+    float lenK = saturate(-b / max(_S4.w, 0.01));
+    lenK = lenK * lenK * (3.0 - 2.0 * lenK);
 
     float dep = 0;
-    float edge = max(a, b);
-    if (edge < wall)
+    if (a < wall && b < 0.0)
     {
-        float k = saturate(edge / wall);
-        dep = lift * (1.0 - k * k * (3.0 - 2.0 * k));   // rounded shoulder down to the floor
-        float inside = saturate(-a / 0.025) * saturate(-b / 0.05);
+        float k = saturate(a / wall);
+        dep = lift * (1.0 - k * k * (3.0 - 2.0 * k)) * lenK;   // rounded shoulder down to the floor (on the sides)
+        float inside = saturate(-a / 0.025) * lenK;
         // grousers: a bar across the track every link, edges not perfectly straight
         float link = floor(along / _S2.z);
         float ph = frac(along / _S2.z + (Noise(float2(t * 9.0, link * 0.7)) - 0.5) * 0.10);
@@ -94,7 +97,7 @@ void Stamp(uint3 id : SV_DispatchThreadID)
 
     // berms: soil squeezed out along the sides, in clods
     float berm = 0;
-    if (b < wall)
+    if (b < 0.0)
     {
         float x = (a - wall * 0.4) / _S1.w;
         if (x > -0.1 && x < 1.2)
@@ -102,7 +105,7 @@ void Stamp(uint3 id : SV_DispatchThreadID)
             float p = sin(saturate(x) * 3.14159265);
             float lumps = 0.35 + 1.1 * Noise(w * 3.2 + _S3.z * 3.1) * (0.6 + 0.4 * Noise(w * 11.0));
             float clods = pow(Noise(w * 16.0 + 5.0), 3.0) * 1.6 * saturate(1.3 - abs(x - 0.4) * 1.6);   // broken lumps on and beside it
-            berm = _S3.y * (p * p * lumps + clods * soft) * (1.0 - saturate(b / wall));
+            berm = _S3.y * (p * p * lumps + clods * soft) * lenK;   // squeezed out beside the pressed length only
         }
     }
 

@@ -24,6 +24,9 @@ int _Res;             // cell size in texels
 RWTexture2D<float4> _Out;
 
 bool In01(float3 u) { return all(u >= 0) && all(u <= 1); }
+// the simulation's boxes end abruptly: gas that reached a side or the top is cut there in a straight line (seen from
+// above, a cloud with a ruler edge). Thin it out over the last few cells of the outermost box it is in (not the floor).
+float EdgeW(float3 u) { float3 m = min(u, 1.0 - u); return smoothstep(0.0, 0.1, m.x) * smoothstep(0.0, 0.1, m.z) * smoothstep(0.0, 0.1, 1.0 - u.y); }
 
 [numthreads(8, 8, 1)]
 void Project(uint3 id : SV_DispatchThreadID)
@@ -39,24 +42,26 @@ void Project(uint3 id : SV_DispatchThreadID)
         float3 P = base + _AxisW.xyz * (((k + 0.5) / _Steps) * 2.0 - 1.0);
         float sig = 0.0, heat = 0.0, soot = 0.0;
         float3 vel = 0; float vw = 0;
+        float ew = 0.0;   // how far inside the boxes (1 = clear of every edge)
         if (_Mode == 0)
         {
             float4 S = 0;
             float3 uA = mul(_W2UA, float4(P, 1)).xyz;
             if (_Use.x > 0.5 && In01(uA))
             {
+                ew = max(ew, EdgeW(uA));
                 S = _SA.SampleLevel(sampler_linear_clamp, uA, 0);
                 vel += mul((float3x3)_RA, _VA.SampleLevel(sampler_linear_clamp, uA, 0).xyz) * S.x; vw += S.x;
             }
             if (_Use.y > 0.5)
             {
                 float3 uB = mul(_W2UB, float4(P, 1)).xyz;
-                if (In01(uB)) { float4 SB = _SB.SampleLevel(sampler_linear_clamp, uB, 0); vel += mul((float3x3)_RB, _VB.SampleLevel(sampler_linear_clamp, uB, 0).xyz) * SB.x; vw += SB.x; float tot = S.x + SB.x; if (tot > 1e-6) S.w = (S.w * S.x + SB.w * SB.x) / tot; S.y = max(S.y, SB.y); S.x = tot; }
+                if (In01(uB)) { ew = max(ew, EdgeW(uB)); float4 SB = _SB.SampleLevel(sampler_linear_clamp, uB, 0); vel += mul((float3x3)_RB, _VB.SampleLevel(sampler_linear_clamp, uB, 0).xyz) * SB.x; vw += SB.x; float tot = S.x + SB.x; if (tot > 1e-6) S.w = (S.w * S.x + SB.w * SB.x) / tot; S.y = max(S.y, SB.y); S.x = tot; }
             }
             if (_Use.z > 0.5)
             {
                 float3 uC = mul(_W2UC, float4(P, 1)).xyz;
-                if (In01(uC)) { float4 SC = _SC.SampleLevel(sampler_linear_clamp, uC, 0); vel += mul((float3x3)_RC, _VC.SampleLevel(sampler_linear_clamp, uC, 0).xyz) * SC.x; vw += SC.x; float tot = S.x + SC.x; if (tot > 1e-6) S.w = (S.w * S.x + SC.w * SC.x) / tot; S.y = max(S.y, SC.y); S.x = tot; }
+                if (In01(uC)) { ew = max(ew, EdgeW(uC)); float4 SC = _SC.SampleLevel(sampler_linear_clamp, uC, 0); vel += mul((float3x3)_RC, _VC.SampleLevel(sampler_linear_clamp, uC, 0).xyz) * SC.x; vw += SC.x; float tot = S.x + SC.x; if (tot > 1e-6) S.w = (S.w * S.x + SC.w * SC.x) / tot; S.y = max(S.y, SC.y); S.x = tot; }
             }
             heat = saturate((S.y - 0.7) / max(_Look.w, 1e-3));
             sig = _Look.x * pow(max(S.x, 0.0), _Look.y) + _Look.z * heat;
@@ -65,9 +70,10 @@ void Project(uint3 id : SV_DispatchThreadID)
         else if (_Use.w > 0.5)
         {
             float3 uD = mul(_W2UD, float4(P, 1)).xyz;
-            if (In01(uD)) { float4 D = _SD.SampleLevel(sampler_linear_clamp, uD, 0); sig = _DustSigma * max(D.x + 2.0 * D.y, 0.0); soot = saturate(D.y / max(D.x + D.y, 1e-4)) * 0.3;
+            if (In01(uD)) { ew = EdgeW(uD); float4 D = _SD.SampleLevel(sampler_linear_clamp, uD, 0); sig = _DustSigma * max(D.x + 2.0 * D.y, 0.0); soot = saturate(D.y / max(D.x + D.y, 1e-4)) * 0.3;
                             vel = mul((float3x3)_RD, _VD.SampleLevel(sampler_linear_clamp, uD, 0).xyz); vw = 1; }
         }
+        sig *= ew;
         if (sig <= 0.0) continue;
         float a = 1.0 - exp(-sig * ds);
         float w = T * a;

@@ -28,6 +28,7 @@ namespace TankRig.Sights
         public DisplaySightProfile Profile => profile ? profile : fallback ? fallback : fallback = ScriptableObject.CreateInstance<DisplaySightProfile>();
         public override SightProfile BaseProfile => Profile;
         public override string HelpKeys => "T: カメラ切替   B: 白黒反転";
+        public override bool GunFixed => fixedToGun;
         public Camera SensorCamera => sensorCam;
 
         SensorChannel Channel => Profile.channels != null && Profile.channels.Length > 0
@@ -74,10 +75,19 @@ namespace TankRig.Sights
         public override void Enter(Camera cam, Vector3 aim)
         {
             blackHot = Profile.blackHot;
-            Vector3 d = aim - EyePosition(false);
-            if (d.sqrMagnitude < 1f) d = GunForward();
-            yaw = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
-            pitch = -Mathf.Asin(Mathf.Clamp(d.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
+            if (fixedToGun)
+            {
+                EnterGunFixed();
+                aimPoint = rig.AimAlong(GunPivot, gunCommand, Profile.aimRange);
+                hasAim = true;
+            }
+            else
+            {
+                Vector3 d = aim - EyePosition(false);
+                if (d.sqrMagnitude < 1f) d = GunForward();
+                yaw = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
+                pitch = -Mathf.Asin(Mathf.Clamp(d.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
+            }
             EnsureSensor(cam);
             sensorCam.enabled = true;
             frameTimer = 0f;
@@ -88,6 +98,7 @@ namespace TankRig.Sights
         public override void Exit(Camera cam)
         {
             if (sensorCam) sensorCam.enabled = false;
+            if (fixedToGun && hideOwnTank) rig.SetOwnTankHidden(false);
         }
 
         void OnDestroy()
@@ -138,6 +149,12 @@ namespace TankRig.Sights
             if (input.polarity) blackHot = !blackHot;
             if (input.scroll != 0f) step = Mathf.Clamp(step + (input.scroll > 0f ? 1 : -1), 0, StepCount - 1);
             float s = ScaledSensitivity(p, ShownFov * 0.75f);
+            if (fixedToGun)
+            {
+                aimPoint = SteerGun(input.look, s, ShownFov, p.aimRange);
+                hasAim = true;
+                return;
+            }
             yaw += input.look.x * s;
             pitch = Mathf.Clamp(pitch - input.look.y * s, -30f, 40f);
             aimPoint = rig.AimAlong(EyePosition(false), Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward, p.aimRange);
@@ -146,8 +163,10 @@ namespace TankRig.Sights
 
         public override void PlaceCamera(Camera cam, float dt)
         {
-            Vector3 eye = EyePosition(false);
-            var rot = Quaternion.Euler(pitch, yaw, 0f);
+            Vector3 eye;
+            Quaternion rot;
+            if (fixedToGun) MountPose(out eye, out rot);   // fixed to the gun: only the gun moves it
+            else { eye = EyePosition(false); rot = Quaternion.Euler(pitch, yaw, 0f); }
             cam.transform.SetPositionAndRotation(eye, rot);
             if (!sensorCam || !sensorRT) EnsureSensor(cam);
             var p = Profile;
@@ -170,6 +189,7 @@ namespace TankRig.Sights
 
         public override void LookAt(Vector3 point)
         {
+            if (fixedToGun) { CommandGunAt(point); aimPoint = point; hasAim = true; return; }
             Vector3 d = point - EyePosition(false);
             if (d.sqrMagnitude < 1e-4f) return;
             yaw = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
@@ -282,7 +302,7 @@ namespace TankRig.Sights
                 float gs = Mathf.Max(12f, img.width * p.trackGate);
                 g.Brackets(new Rect(o.x - gs, o.y - gs * 0.75f, gs * 2f, gs * 1.5f), gs * 0.35f, lw, sc);
             }
-            if (p.showGunMarker && rig.tank && sensorCam)
+            if (p.showGunMarker && !fixedToGun && rig.tank && sensorCam)
             {
                 float dist = Mathf.Max(50f, Vector3.Distance(rig.GunOrigin, aimPoint));
                 Vector3 gd = rig.GunOrigin + rig.GunDirection * dist - sensorCam.transform.position;

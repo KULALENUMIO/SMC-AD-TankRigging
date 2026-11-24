@@ -8,10 +8,10 @@ namespace TankRig.Editor
     /// <summary>The steps behind the builder window: set up the rig root, place tracks and points, and finish (rig) the tank.</summary>
     public static partial class TankRigBuilder
     {
-        public enum PointKind { Muzzle, Exhaust, Headlight, RearLight }
+        public enum PointKind { Muzzle, Exhaust, Headlight, RearLight, Sight }
 
         public static readonly PointKind[] AllPoints =
-            { PointKind.Muzzle, PointKind.Exhaust, PointKind.Headlight, PointKind.RearLight };
+            { PointKind.Muzzle, PointKind.Sight, PointKind.Exhaust, PointKind.Headlight, PointKind.RearLight };
 
         // ------------------------------------------------------------------ SMC-AD (optional, by reflection)
 
@@ -224,6 +224,7 @@ namespace TankRig.Editor
         public static string Label(PointKind k) => k switch
         {
             PointKind.Muzzle => "主砲の砲口",
+            PointKind.Sight => "照準カメラ",
             PointKind.Exhaust => "エンジン排気",
             PointKind.Headlight => "前照灯",
             _ => "後部灯",
@@ -232,6 +233,7 @@ namespace TankRig.Editor
         static string ObjectName(PointKind k) => k switch
         {
             PointKind.Muzzle => "Muzzle",
+            PointKind.Sight => "SightPoint",
             PointKind.Exhaust => "Exhaust_L",
             PointKind.Headlight => "Headlight_L",
             _ => "RearLight_L",
@@ -240,6 +242,7 @@ namespace TankRig.Editor
         public static Transform GetPoint(TankRigSetup s, PointKind k) => k switch
         {
             PointKind.Muzzle => s.muzzle,
+            PointKind.Sight => s.sightPoint,
             PointKind.Exhaust => s.exhaust,
             PointKind.Headlight => s.headlight,
             _ => s.rearLight,
@@ -280,6 +283,7 @@ namespace TankRig.Editor
             switch (k)
             {
                 case PointKind.Muzzle: s.muzzle = t; break;
+                case PointKind.Sight: s.sightPoint = t; break;
                 case PointKind.Exhaust: s.exhaust = t; break;
                 case PointKind.Headlight: s.headlight = t; break;
                 default: s.rearLight = t; break;
@@ -301,6 +305,7 @@ namespace TankRig.Editor
             switch (k)
             {
                 case PointKind.Muzzle: return s.barrel ? s.barrel : s.gun ? s.gun : s.turret ? s.turret : s.hull; // moves with the recoil
+                case PointKind.Sight: return s.gun ? s.gun : s.turret ? s.turret : s.hull ? s.hull : s.transform;   // turns and elevates with the gun mount (not the recoil)
                 default: return s.hull ? s.hull : s.transform;
             }
         }
@@ -341,6 +346,7 @@ namespace TankRig.Editor
             switch (k)
             {
                 case PointKind.Muzzle:
+                case PointKind.Sight:
                     return Quaternion.LookRotation(BarrelDirection(s), root.up);
                 case PointKind.Exhaust:
                     return Quaternion.LookRotation((root.up - root.forward * 0.35f).normalized, -root.forward);
@@ -414,6 +420,12 @@ namespace TankRig.Editor
                 Vector3 axisW = s.gun.TransformDirection(s.gunAxisLocal);
                 if (includeMuzzle && FindBarrelTip(s.barrel ? s.barrel : s.gun, s.gun.position, axisW, out var tip, out _))
                     PlacePoint(s, PointKind.Muzzle, tip);
+            }
+            // the aiming camera: beside and above the gun mount, a little forward (the gunner's sight head)
+            if (s.gun && (includeMuzzle || !s.sightPoint))
+            {
+                var fr = Quaternion.LookRotation(BarrelDirection(s), root.up);
+                PlacePoint(s, PointKind.Sight, s.gun.position + fr * new Vector3(0.55f, 0.4f, 0.25f));
             }
             // the machine guns that are already there move with the new front (coaxial ones along the barrel)
             for (int i = 0; s.machineGuns != null && i < s.machineGuns.Count; i++)
@@ -678,7 +690,7 @@ namespace TankRig.Editor
             c.driveMode = s.physicsDrive ? TankController.DriveMode.Physics : TankController.DriveMode.Kinematic;
             SetupBody(s, c, hb);
 
-            if (setupCamera) SetupCamera(c, hb);
+            if (setupCamera) SetupCamera(c, hb, s);
             if (createGround) CreateTestGround(root, root.position.y + c.groundOffset);
 
             EditorUtility.SetDirty(c);
@@ -844,7 +856,7 @@ namespace TankRig.Editor
             return mesh;
         }
 
-        static void SetupCamera(TankController c, Bounds hullBounds)
+        static void SetupCamera(TankController c, Bounds hullBounds, TankRigSetup s)
         {
             var cam = Camera.main;
             if (!cam)
@@ -872,7 +884,7 @@ namespace TankRig.Editor
             tc.distance = Mathf.Clamp(size * 1.7f, 6f, 40f);
             tc.maxDistance = Mathf.Max(tc.distance * 2.5f, 20f);
             c.aimCamera = tc;
-            TankRigSightsSetup.AddTo(cam, c);   // V: optical sight / display / helmet
+            TankRigSightsSetup.AddTo(cam, c, s.sightPoint, s.sightKind);   // Shift: the chosen sight at the sight point; V: optical / display / helmet
             var root = c.transform;
             Undo.RecordObject(cam.transform, "戦車の完成");
             Vector3 pivot = root.position + Vector3.up * tc.height;

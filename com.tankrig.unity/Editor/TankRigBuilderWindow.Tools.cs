@@ -78,6 +78,8 @@ namespace TankRig.Editor
                     SceneView.RepaintAll();
                 }
             }
+            if (GUILayout.Button(new GUIContent("作業ビューを開く", "戦車だけを映す別のウィンドウ。明るく表示し、砲塔などを隠したり、正面・側面から見たりできる。ポイントの配置はそのまま使える")))
+                TankRigWorkView.Open(setup.transform);
             if (view != ViewMode.Free)
                 EditorGUILayout.HelpBox("三面図: 四角いハンドルでこの面の中だけ動きます（奥行きはそのまま）。回転ツール（E）は面の中で回ります。グリッドは 1 ブロック、濃い線は 1 m ごと。", MessageType.None);
         }

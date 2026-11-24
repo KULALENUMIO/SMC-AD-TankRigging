@@ -25,6 +25,10 @@ namespace TankRig
         public LayerMask collisionMask = ~0;
         public float aimRange = 2000f;
         public bool showHud = true;
+        [Tooltip("C で砲塔を止めて見回す: オフ = 押している間だけ / オン = 押すたびに切り替え")] public bool freeLookToggle = false;
+
+        /// <summary>Looking round freely: the turret is held where it was.</summary>
+        public bool FreeLook { get; private set; }
 
         public Vector3 AimPoint { get; private set; }
 
@@ -50,6 +54,7 @@ namespace TankRig
         // give the mouse back when this camera stops driving it (switched off, scene change, menu)
         void OnDisable()
         {
+            if (FreeLook) SetFreeLook(false, false);
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
         }
@@ -71,11 +76,26 @@ namespace TankRig
             pitch = Mathf.Clamp(-Mathf.Asin(Mathf.Clamp(dir.normalized.y, -1f, 1f)) * Mathf.Rad2Deg + 8f, minPitch, maxPitch);
         }
 
+        /// <summary>Free look on / off (C). Back off: the camera turns back to the gun (<paramref name="lookBack"/>).</summary>
+        public void SetFreeLook(bool on, bool lookBack = true)
+        {
+            FreeLook = on;
+            if (target) target.holdTurret = on;
+            // back from looking round: the camera turns back to the gun (the turret does not swing to the camera)
+            if (!on && lookBack && target)
+            {
+                Transform m = target.muzzle ? target.muzzle : target.gun ? target.gun : target.transform;
+                LookAlong(m.forward);
+            }
+        }
+
         void LateUpdate()
         {
             if (!target) return;
             float dt = Time.deltaTime;
             var input = TankInput.Read();
+            bool wantFree = freeLookToggle ? (input.freeLookPressed ? !FreeLook : FreeLook) : input.freeLook;
+            if (wantFree != FreeLook) SetFreeLook(wantFree, true);
             if (input.unlockCursor)
             {
                 Cursor.lockState = CursorLockMode.None;
@@ -175,8 +195,9 @@ namespace TankRig
                     GUI.Label(new Rect(16, line, 400, 22), $"{mg.name}: {BeltText(mg.Feed, mg.spec)}");
                 }
             GUI.Label(new Rect(16, line - 22, 400, 22), $"速度 {target.Speed * 3.6f:0} km/h");
-            GUI.Label(new Rect(16, 12, 1200, 22), "W/S: 前進・後退   A/D: 旋回   マウス: 照準   左クリック: 主砲   Space: 機銃   中クリック/F: 副武装   右クリック: ズーム   ホイール: 距離   L: ライト   "
-                + (GetComponent<Sights.TankSightRig>() ? "V: 照準器   " : "") + "Esc: カーソル解放");
+            GUI.Label(new Rect(16, 12, 1400, 22), "W/S: 前進・後退   A/D: 旋回   マウス: 照準   左クリック: 主砲   Space: 機銃   中クリック/F: 副武装   右クリック: ズーム   ホイール: 距離   L: ライト   C: 見回す   "
+                + (GetComponent<Sights.TankSightRig>() ? "Shift: 照準   V: 照準器   " : "") + "Esc: カーソル解放");
+            if (FreeLook) GUI.Label(new Rect(cx - 60, cy + 40, 200, 22), "見回し中（砲塔固定）");
         }
     }
 }

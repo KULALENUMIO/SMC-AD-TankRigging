@@ -27,6 +27,9 @@ namespace TankRig.Editor
             public Vector3 centre; public float half, halfV, depth;   // in the firing frame (x down the bore, y up, z across), m; halfV: the box's half height
             public float k = 1f;                           // optical depth scale: keeps the thick middle from going flat white
             public float t0, t1, pow;                      // frame k at t0 + (t1 - t0) (k/15)^pow
+            public int sideOf = -1;                        // >= 0: the same part seen from straight above (U down the bore, V across, W down
+                                                           //       through the box); halfV is then the half width across, depth the half height
+            public float cardY;                            // seen from above: the height the flat card lies at (firing frame, m)
             public float Time(int k, int n) => t0 + (t1 - t0) * Mathf.Pow(k / (n - 1f), pow);
         }
 
@@ -46,6 +49,11 @@ namespace TankRig.Editor
                 new Part { name = "fireball", mode = 0, centre = new Vector3(7f, 1.2f, 0f), half = 8f, halfV = 4f, depth = 9f, t0 = 0.004f, t1 = 0.25f, pow = 1.4f, k = 0.06f },
                 new Part { name = "muzzle cloud", mode = 0, centre = new Vector3(16f, 4.5f, 0f), half = 18f, halfV = 7.5f, depth = 18f, t0 = 0.15f, t1 = 3.0f, pow = 1.3f, k = 0.12f },
                 new Part { name = "ground dust", mode = 1, centre = new Vector3(4f, -2.3f + 4.7f, 0f), half = 18f, halfV = 5f, depth = 20f, t0 = 0.06f, t1 = 2.9f, pow = 1.3f, k = 0.3f },
+                // the same three seen from straight above (a card baked side-on stands up like a wall when looked down on):
+                // the run-time cross-fades to these as the view gets steep. Flat cards at about the gas's middle height.
+                new Part { name = "fireball top", mode = 0, centre = new Vector3(7f, 1.2f, 0f), half = 8f, halfV = 6f, depth = 4f, t0 = 0.004f, t1 = 0.25f, pow = 1.4f, k = 0.06f, sideOf = 0, cardY = 0f },
+                new Part { name = "muzzle cloud top", mode = 0, centre = new Vector3(16f, 4.5f, 0f), half = 18f, halfV = 12f, depth = 7.5f, t0 = 0.15f, t1 = 3.0f, pow = 1.3f, k = 0.17f, sideOf = 1, cardY = 1.0f },
+                new Part { name = "ground dust top", mode = 1, centre = new Vector3(4f, -2.3f + 4.7f, 0f), half = 18f, halfV = 16f, depth = 5f, t0 = 0.06f, t1 = 2.9f, pow = 1.3f, k = 0.65f, sideOf = 2, cardY = -2.3f + 1.6f },
             };
             var cs = AssetDatabase.LoadAssetAtPath<ComputeShader>(ComputePath);
             if (!cs) return "no " + ComputePath;
@@ -91,8 +99,10 @@ namespace TankRig.Editor
                     while (s.t - sim.Time > 1e-5f) sim.Advance(Mathf.Min(s.t - sim.Time, 1f / 120f));
                     var p = parts[s.part];
                     var fr = sim.FireFrame;
+                    bool top = p.sideOf >= 0;
                     Vector3 o = fr.MultiplyPoint(p.centre), U = fr.MultiplyVector(Vector3.right).normalized * p.half,
-                            V = fr.MultiplyVector(Vector3.up).normalized * p.halfV, W = fr.MultiplyVector(Vector3.forward).normalized * p.depth;
+                            V = fr.MultiplyVector(top ? Vector3.forward : Vector3.up).normalized * p.halfV,
+                            W = fr.MultiplyVector(top ? Vector3.down : Vector3.forward).normalized * p.depth;
                     Bind(cs, k, sim);
                     cs.SetInt("_Mode", p.mode);
                     cs.SetVector("_Origin", o); cs.SetVector("_AxisU", U); cs.SetVector("_AxisV", V); cs.SetVector("_AxisW", W);
@@ -178,12 +188,15 @@ namespace TankRig.Editor
                 tmp.SetLook(FlashAtlas.SliceFire, softness: 0.5f, translucency: 0.2f, hgG: 0.3f, selfShadow: 0.6f, rim: 0.2f, tempPower: 2.0f);
                 tmp.SetLook(FlashAtlas.SliceSmoke);
                 tmp.SetLook(FlashAtlas.SliceDust, hgG: 0.45f, selfShadow: 0.6f, rim: 0.4f, ambSelfShadow: 0.35f, dirAmbMin: 0.7f);   // thin light dust: little self-shadow
+                for (int i = 0; i < parts.Length; i++)
+                    if (parts[i].sideOf >= 0) { int so2 = parts[i].sideOf; tmp.light[i] = tmp.light[so2]; tmp.scatter[i] = tmp.scatter[so2]; tmp.look[i] = tmp.look[so2]; }
                 var so = ScriptableObject.CreateInstance<FlashAtlasAsset>();
                 so.A = arrA; so.B = arrB; so.C = arrC;
                 so.sliceNames = parts.Select(p => p.name).ToArray();
                 so.grid = parts.Select(pp => new Vector4(F, F, frames, pp.halfV / pp.half)).ToArray();   // w: the card's height / width
                 so.timing = parts.Select(pp => new Vector4(pp.t0, pp.t1, pp.pow, pp.half)).ToArray();
-                so.place = parts.Select(pp => new Vector4(pp.centre.x, pp.centre.y, 2.3f, pp.name != "fireball" ? 1f : 0f)).ToArray();   // the bake's muzzle is 2.3 m up; the cloud and the dust sit on the ground
+                so.place = parts.Select(pp => new Vector4(pp.centre.x, pp.sideOf >= 0 ? pp.cardY : pp.centre.y, 2.3f, !pp.name.StartsWith("fireball") ? 1f : 0f)).ToArray();   // the bake's muzzle is 2.3 m up; the cloud and the dust sit on the ground
+                so.top = parts.Select(pp => System.Array.FindIndex(parts, qq => qq.sideOf >= 0 && parts[qq.sideOf] == pp)).ToArray();   // each side-on slice's top-down one (-1: none)
                 so.light = tmp.light.Take(parts.Length).ToArray(); so.scatter = tmp.scatter.Take(parts.Length).ToArray(); so.look = tmp.look.Take(parts.Length).ToArray();
                 so.notes = "baked " + System.DateTime.Now.ToString("yyyy-MM-dd HH:mm") + " from MuzzleBlastSim (cinematic grids, no tank, no wind), " + cell + " px cells; " +
                            string.Join("; ", parts.Select(p => $"{p.name}: {p.t0:F3}-{p.t1:F2} s, box {p.half * 2:F0} m"));

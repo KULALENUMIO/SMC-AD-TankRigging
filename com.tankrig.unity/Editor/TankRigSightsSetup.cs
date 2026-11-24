@@ -22,7 +22,13 @@ namespace TankRig.Editor
         }
 
         /// <summary>Adds what is missing; existing sights and their settings are kept.</summary>
-        public static TankSightRig AddTo(Camera cam, TankController tank)
+        public static TankSightRig AddTo(Camera cam, TankController tank) => AddTo(cam, tank, null, AimSightKind.Display, false);
+
+        /// <summary>Adds what is missing, and sets where the aiming camera sits (both the optical and the display sight)
+        /// and which of them Shift aims with.</summary>
+        public static TankSightRig AddTo(Camera cam, TankController tank, Transform sightPoint, AimSightKind kind) => AddTo(cam, tank, sightPoint, kind, true);
+
+        static TankSightRig AddTo(Camera cam, TankController tank, Transform sightPoint, AimSightKind kind, bool setAim)
         {
             if (!cam) return null;
             var go = cam.gameObject;
@@ -34,6 +40,16 @@ namespace TankRig.Editor
             if (!go.GetComponent<DisplaySight>()) Undo.AddComponent<DisplaySight>(go);
             if (!go.GetComponent<HelmetSight>()) Undo.AddComponent<HelmetSight>(go);
             rig.sights = new TankSight[] { go.GetComponent<OpticalSight>(), go.GetComponent<DisplaySight>(), go.GetComponent<HelmetSight>() };
+            if (setAim)
+            {
+                rig.aimSight = kind;
+                foreach (TankSight sg in new TankSight[] { go.GetComponent<OpticalSight>(), go.GetComponent<DisplaySight>() })
+                {
+                    Undo.RecordObject(sg, "照準器");
+                    if (sightPoint) sg.eyePoint = sightPoint;   // none: keep what the sight has (near the gun mount by default)
+                    EditorUtility.SetDirty(sg);
+                }
+            }
             EditorUtility.SetDirty(rig);
             return rig;
         }

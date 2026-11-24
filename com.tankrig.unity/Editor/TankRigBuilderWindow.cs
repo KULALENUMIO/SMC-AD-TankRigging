@@ -67,6 +67,7 @@ namespace TankRig.Editor
             Selection.selectionChanged -= OnSelectionChanged;
             EditorApplication.playModeStateChanged -= OnPlayModeChanged;
             placing = null;
+            TankRigBrightView.Restore();
             ResetPreview();
             SetView(ViewMode.Free);
         }
@@ -617,6 +618,13 @@ namespace TankRig.Editor
                 EditorGUILayout.PrefixLabel(" ");
                 PlaceButtons(Target.Point(k), t);
             }
+            if (k == TankRigBuilder.PointKind.Sight)
+            {
+                var kindLabels = new[] { new GUIContent("ディスプレイ式（射撃画面）"), new GUIContent("直接照準式（光学照準器）") };
+                int kc = (int)setup.sightKind;
+                int kn = EditorGUILayout.Popup(new GUIContent("照準カメラの種類", "Shift で照準するときの見え方。どちらもこのポイントから見ます（V で他の照準器にも切り替え可）"), kc, kindLabels);
+                if (kn != kc) { Undo.RecordObject(setup, "照準カメラの種類"); setup.sightKind = (TankRig.Sights.AimSightKind)kn; EditorUtility.SetDirty(setup); }
+            }
             if (TankRigBuilder.CanMirror(k))
             {
                 bool m = TankRigBuilder.IsMirrored(setup, k);
@@ -754,6 +762,7 @@ namespace TankRig.Editor
         static Color PointColor(TankRigBuilder.PointKind k) => k switch
         {
             TankRigBuilder.PointKind.Muzzle => new Color(1f, 0.45f, 0.2f),
+            TankRigBuilder.PointKind.Sight => new Color(0.35f, 1f, 0.45f),
             TankRigBuilder.PointKind.Exhaust => new Color(0.75f, 0.75f, 0.75f),
             TankRigBuilder.PointKind.Headlight => new Color(0.5f, 0.85f, 1f),
             _ => new Color(1f, 0.25f, 0.3f),
@@ -875,7 +884,8 @@ namespace TankRig.Editor
                 if (st.muzzle) PointHandle(Target.Secondary(i), st.muzzle, st.name + "の砲口", SecondaryColor, null, null);
             }
 
-            if (placing.HasValue) HandlePlacing(sv);
+            if (placing.HasValue) { TankRigBrightView.Apply(); HandlePlacing(sv); }
+            else TankRigBrightView.Restore();
         }
 
         /// <summary>Line + label for a point; a button to pick it, or move / rotate handles when it is the one being edited.</summary>
@@ -932,10 +942,11 @@ namespace TankRig.Editor
             int id = GUIUtility.GetControlID(FocusType.Passive);
             HandleUtility.AddDefaultControl(id);
             Handles.BeginGUI();
-            var r = new Rect(e.mousePosition.x + 14f, e.mousePosition.y + 4f, 300f, 22f);
-            GUI.Box(r, "クリックして配置: " + TargetLabel(placing.Value) + "（Esc で中止）");
+            var r = new Rect(e.mousePosition.x + 14f, e.mousePosition.y + 4f, 420f, 22f);
+            GUI.Box(r, "クリックして配置: " + TargetLabel(placing.Value) + "（Esc で中止、B で明るく表示 " + (TankRigBrightView.Bright ? "オン" : "オフ") + "）");
             Handles.EndGUI();
             if (e.type == EventType.MouseMove) sv.Repaint();
+            if (e.type == EventType.KeyDown && e.keyCode == KeyCode.B) { TankRigBrightView.Bright = !TankRigBrightView.Bright; e.Use(); sv.Repaint(); return; }
             if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Escape)
             {
                 placing = null;
@@ -947,6 +958,8 @@ namespace TankRig.Editor
             {
                 var ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
                 var filters = setup.model ? setup.model.GetComponentsInChildren<MeshFilter>() : setup.GetComponentsInChildren<MeshFilter>();
+                var hidden = TankRigWorkView.RendererTest();   // parts left out of the work view cannot be clicked
+                if (hidden != null) filters = System.Array.FindAll(filters, mf => !hidden(mf.GetComponent<Renderer>()));
                 if (MeshRaycast.Raycast(ray, filters, out var hit))
                 {
                     var target = placing.Value;

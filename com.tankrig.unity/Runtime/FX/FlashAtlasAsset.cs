@@ -12,6 +12,7 @@ namespace TankRig.FX
         public string[] sliceNames = new string[0];
         public Vector4[] grid = new Vector4[0], light = new Vector4[0], scatter = new Vector4[0], look = new Vector4[0];
         public Vector4[] timing = new Vector4[0], place = new Vector4[0];   // see FlashAtlas.timing / place
+        public int[] top = new int[0];   // see FlashAtlas.top
         [TextArea] public string notes;
 
         public FlashAtlas ToAtlas()
@@ -25,6 +26,7 @@ namespace TankRig.FX
                 if (i < look.Length) at.look[i] = look[i];
                 if (i < timing.Length) at.timing[i] = timing[i];
                 if (i < place.Length) at.place[i] = place[i];
+                if (i < top.Length) at.top[i] = top[i];
             }
             return at;
         }

@@ -5,6 +5,9 @@ using UnityEngine.Rendering.HighDefinition;
 
 namespace TankRig.Sights
 {
+    /// <summary>The camera Shift aims with: the fire-control display (sensor camera) or the direct optical sight.</summary>
+    public enum AimSightKind { Display, Optical }
+
     /// <summary>
     /// Switches the tank camera between the third-person view and the sights (V), and runs what every sight shares:
     /// cursor, laser rangefinder (R), ammunition (1–4), firing shake, the symbology overlay and the main gun's aim.
@@ -21,6 +24,8 @@ namespace TankRig.Sights
         [Tooltip("射撃統制装置が知っている弾種（1〜4 キーで選ぶ）")] public AmmoType[] ammo = AmmoType.DefaultWestern();
         public int ammoIndex;
         [Tooltip("開始時の視点（-1 = 三人称、0〜 = 照準器の番号）")] public int startSight = -1;
+        [Tooltip("Shift で照準するときのカメラ: ディスプレイ式（射撃画面）/ 直接照準式（光学照準器）")] public AimSightKind aimSight = AimSightKind.Display;
+        [Tooltip("Shift: オフ = 押すたびに照準 / 三人称を切り替え、オン = 押している間だけ照準")] public bool aimHold = false;
         [Tooltip("照準器のとき、操作の説明を出す")] public bool showHelp = true;
         [Tooltip("テスト用: 記号を視線の向きで重ねる（VR と同じ道）")] public bool forceAngularOverlay;
 
@@ -170,6 +175,20 @@ namespace TankRig.Sights
 
         public void Next() => Switch(Active + 1 >= list.Count ? -1 : Active + 1);
 
+        bool byShift;
+
+        /// <summary>Shift: into the aiming sight (<see cref="aimSight"/>), or back to the third-person view.</summary>
+        public void ToggleAim() => Switch(Active < 0 ? AimSightIndex() : -1);
+
+        /// <summary>The sight Shift aims with (<see cref="aimSight"/>); the first sight when there is none of that kind.</summary>
+        public int AimSightIndex()
+        {
+            if (list.Count == 0) Collect();
+            for (int i = 0; i < list.Count; i++)
+                if (aimSight == AimSightKind.Display ? list[i] is DisplaySight : list[i] is OpticalSight) return i;
+            return list.Count > 0 ? 0 : -1;
+        }
+
         static void LockCursor()
         {
             Cursor.lockState = CursorLockMode.Locked;
@@ -186,6 +205,11 @@ namespace TankRig.Sights
             Shake = Mathf.MoveTowards(Shake, 0f, dt * 2.5f);
             var input = TankInput.Read();
             if (input.cycleView) Next();
+            // Shift: into the aiming sight (the kind chosen for this tank) and back to the third-person view
+            if (input.sight && (Active < 0 || !aimHold)) ToggleAim();
+            else if (aimHold && byShift && Active >= 0 && !input.sightHeld) Switch(-1);
+            if (input.sight && Active >= 0) byShift = true;
+            if (Active < 0) byShift = false;
             var s = Current;
             if (!s) return;
 
@@ -208,8 +232,16 @@ namespace TankRig.Sights
             {
                 // a jolt of the whole view, in proportion to the field of view (so it reads the same at any zoom)
                 float a = Shake * Shake * c.fieldOfView * 0.05f;
-                var j = shakeDir * a + Random.insideUnitCircle * (a * 0.3f);
-                c.transform.rotation = c.transform.rotation * Quaternion.Euler(-j.y, j.x, 0f);
+                if (s.GunFixed)
+                {
+                    // fixed to the gun: one kick up with the recoil that settles back exactly where it was (no wander)
+                    c.transform.rotation = c.transform.rotation * Quaternion.Euler(-a * 0.8f, 0f, 0f);
+                }
+                else
+                {
+                    var j = shakeDir * a + Random.insideUnitCircle * (a * 0.3f);
+                    c.transform.rotation = c.transform.rotation * Quaternion.Euler(-j.y, j.x, 0f);
+                }
             }
 
             var f = SightPass.FrameFor(c);
@@ -223,7 +255,7 @@ namespace TankRig.Sights
 
         void PaintHelp(SightPainter p, TankSight s)
         {
-            string keys = "V: 視点   ホイール: 倍率   R: レーザー測距   1〜4: 弾種   " + s.HelpKeys + "   Esc: カーソル解放";
+            string keys = "Shift: 戻る   V: 視点   ホイール: 倍率   R: レーザー測距   1〜4: 弾種   " + s.HelpKeys + "   Esc: カーソル解放";
             p.Text(keys, new Vector2(-p.HalfWidth + 16f, SightPainter.Height * 0.5f - 18f), 15f, new Color(1f, 1f, 1f, 0.75f), new Vector2(-1f, 1f), new Color(0f, 0f, 0f, 0.6f));
             p.Text(s.DisplayName, new Vector2(-p.HalfWidth + 16f, SightPainter.Height * 0.5f - 40f), 15f, new Color(1f, 1f, 1f, 0.75f), new Vector2(-1f, 1f), new Color(0f, 0f, 0f, 0.6f));
         }

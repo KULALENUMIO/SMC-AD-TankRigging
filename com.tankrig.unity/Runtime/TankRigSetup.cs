@@ -48,6 +48,8 @@ namespace TankRig
         public bool mirrorExhaust = true;
         public bool mirrorHeadlight = true;
         public bool mirrorRearLight = true;
+        [Tooltip("照準カメラの位置（Shift で照準するときの視点。なくても可）")] public Transform sightPoint;
+        [Tooltip("Shift で照準するときのカメラ: ディスプレイ式 / 直接照準式（光学）")] public Sights.AimSightKind sightKind = Sights.AimSightKind.Display;
         [HideInInspector] public bool machineGunFollowsGun = true;
 
         [Header("武装（機銃・副砲塔）")]

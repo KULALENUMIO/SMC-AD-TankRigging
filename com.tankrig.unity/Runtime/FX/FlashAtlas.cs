@@ -28,6 +28,10 @@ namespace TankRig.FX
         /// <summary>Baked slices (CPU only): the card's centre from the muzzle along the bore and up (m), the muzzle's
         /// height above the ground in the bake (m), 1 = place it from the ground (else from the muzzle).</summary>
         public readonly Vector4[] place = new Vector4[MaxSlices];
+        /// <summary>Baked slices (CPU only): the slice holding the same flipbook seen from straight above (-1 = none).
+        /// Its place.y is the height of the flat card (firing frame).</summary>
+        public readonly int[] top = NoTop();
+        static int[] NoTop() { var t = new int[MaxSlices]; for (int i = 0; i < t.Length; i++) t[i] = -1; return t; }
 
         /// <summary>The (fractional) frame of a baked slice at shot time t.</summary>
         public float FrameAt(int slice, float t)
