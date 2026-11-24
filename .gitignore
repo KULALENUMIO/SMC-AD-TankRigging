@@ -6,11 +6,6 @@
 *.blend2
 *.fbm/
 
-# --- Unity development project ---
-# The test project depends on local paths (SMC-AD package outside this folder) and a test model,
-# so it is not published. Remove this line to publish it; the Unity rules below then apply.
-/TANK TRACK DEV/
-
 # Unity generated folders (for any Unity project inside this repository)
 [Ll]ibrary/
 [Tt]emp/

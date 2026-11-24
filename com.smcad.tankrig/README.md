@@ -1,8 +1,10 @@
-# SMC-AD+ Unity タンクリギングプラグイン（v0.7.0-alpha）
+# SMC-AD Tank Rigging for Unity（v0.9.0-alpha、`com.smcad.tankrig`）
+
+> 0.9.0 で名前を整理しました（旧 SMC-AD+ Unity Tank Rigging Plugin / `com.tankrig.unity`）。古い方を外してから入れてください。
 
 > [!WARNING]
 > **α版・試作品です。** [SMC-AD](https://github.com/KULALENUMIO/SMC-AD) と組み合わせて使うことだけを前提にしています。
-> 使い方・データの形式は予告なく変わります。導入前の注意はリポジトリの [README](https://github.com/KULALENUMIO/SMC-AD-PLUS-UNITY-TANK-RIGGING#導入するときの注意) を読んでください。
+> 使い方・データの形式は予告なく変わります。導入前の注意はリポジトリの [README](https://github.com/KULALENUMIO/SMC-AD-TankRigging#導入するときの注意) を読んでください。
 
 SMC-AD で取り込んだ戦車モデルに、同梱の履帯（転輪一式 + リンク 1 枚）を組み合わせ、
 **WASD とマウスで操縦できる戦車**にする Unity エディタ拡張です。
@@ -11,7 +13,7 @@ SMC-AD で取り込んだ戦車モデルに、同梱の履帯（転輪一式 + �
 - 動作環境: Unity 6.3（6000.3 以降）、**HDRP 17.3 以降**（0.8.0 から HDRP 専用。URP 版は `urp-final` タグ）、Input System（パッケージの依存として自動で入ります）
 - 導入（どちらか）
   - Git から: Package Manager > + > **Add package from git URL…** に
-    `https://github.com/KULALENUMIO/SMC-AD-PLUS-UNITY-TANK-RIGGING.git?path=/com.tankrig.unity`
+    `https://github.com/KULALENUMIO/SMC-AD-TankRigging.git?path=/com.smcad.tankrig`
   - ローカルから: Package Manager > + > **Add package from disk…** > このフォルダの `package.json`
 - ライセンス: MIT（[LICENSE.md](LICENSE.md)）
 - 転輪・履帯のモデル（FBX）はパッケージに同梱されていて（`Tracks~`）、組み立てを始めると `Assets/TankRig/Tracks` に自動でコピーされます。

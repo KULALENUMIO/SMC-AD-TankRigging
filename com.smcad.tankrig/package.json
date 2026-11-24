@@ -1,7 +1,7 @@
 {
-  "name": "com.tankrig.unity",
-  "version": "0.8.0-alpha",
-  "displayName": "SMC-AD+ Unity Tank Rigging Plugin",
+  "name": "com.smcad.tankrig",
+  "version": "0.9.0-alpha",
+  "displayName": "SMC-AD Tank Rigging for Unity",
   "description": "[Alpha / experimental] Companion to SMC-AD: turns a tank model imported with SMC-AD into a drivable tank. A builder window to pick hull / turret / gun mount / barrel, place mirrored tracks and effect points with the mouse, and rig it in one click. Hull-only Rigidbody physics with torsion-bar suspension, rendered tracks that follow the terrain, War Thunder style WASD + mouse controls, gun recoil, muzzle / machine gun / exhaust effects and lights (HDRP only: particle Shader Graph, lights in physical units). Comes with 6- and 7-wheel running gear and five track link designs.",
   "unity": "6000.3",
   "dependencies": {

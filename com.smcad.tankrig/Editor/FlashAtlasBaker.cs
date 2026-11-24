@@ -18,8 +18,8 @@ namespace TankRig.Editor
 {
     public static class FlashAtlasBaker
     {
-        public const string AssetPath = "Packages/com.tankrig.unity/Runtime/Resources/TankRigFX/BlastAtlas.asset";
-        const string ComputePath = "Packages/com.tankrig.unity/Editor/Bake/FlashBake.compute";
+        public const string AssetPath = "Packages/com.smcad.tankrig/Runtime/Resources/TankRigFX/BlastAtlas.asset";
+        const string ComputePath = "Packages/com.smcad.tankrig/Editor/Bake/FlashBake.compute";
 
         class Part
         {

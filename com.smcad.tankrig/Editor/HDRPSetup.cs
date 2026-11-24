@@ -23,7 +23,7 @@ namespace TankRig.Editor
         public static Shader ParticleShader()
         {
             var s = Shader.Find(TankFxFactory.ParticleShader);
-            if (s == null) s = UnityEditor.AssetDatabase.LoadAssetAtPath<Shader>("Packages/com.tankrig.unity/Runtime/Shaders/Particle Unlit.shadergraph");
+            if (s == null) s = UnityEditor.AssetDatabase.LoadAssetAtPath<Shader>("Packages/com.smcad.tankrig/Runtime/Shaders/Particle Unlit.shadergraph");
             return s;
         }
 

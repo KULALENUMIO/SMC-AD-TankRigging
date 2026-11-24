@@ -1,4 +1,4 @@
-# SMC-AD+ Unity タンクリギングプラグイン
+# SMC-AD Tank Rigging for Unity
 
 > [!WARNING]
 > **α版・試作品です。中身は実験的なものです。**
@@ -11,7 +11,7 @@
 > not considered for now. Updates happen on a whim — please don't expect regular updates, fixes or support. Things may change
 > without notice, and this repository may be deleted or replaced by another one if a proper release is ever made.
 
-**SMC-AD+ Unity Tank Rigging Plugin** は、SMC-AD で Unity に取り込んだ戦車を、**WASD とマウスで操縦できる戦車**にする Unity エディタ拡張です。
+**SMC-AD Tank Rigging for Unity** は、SMC-AD で Unity に取り込んだ戦車を、**WASD とマウスで操縦できる戦車**にする Unity エディタ拡張です。
 組み立てウィンドウで車体・砲塔・砲座・砲身を選び、履帯（6 輪 / 7 輪、リンク 5 種）を左右対称に置いて、ワンクリックでリギングします。
 
 - 車体だけ Rigidbody の物理演算 + 転輪ごとのトーションバー。履帯は描画だけで地形に沿います
@@ -38,8 +38,8 @@ Scrap Mechanic のブループリント
 
 | フォルダ / ファイル | 内容 | ライセンス |
 |---|---|---|
-| `com.tankrig.unity/` | Unity パッケージ本体（使い方は [com.tankrig.unity/README.md](com.tankrig.unity/README.md)） | MIT |
-| `com.tankrig.unity/Tracks~/` | 同梱の転輪・履帯 FBX（6 輪 / 7 輪、リンク 5 種）。Unity が自動でプロジェクトにコピーします | MIT |
+| `com.smcad.tankrig/` | Unity パッケージ本体（使い方は [com.smcad.tankrig/README.md](com.smcad.tankrig/README.md)） | MIT |
+| `com.smcad.tankrig/Tracks~/` | 同梱の転輪・履帯 FBX（6 輪 / 7 輪、リンク 5 種）。Unity が自動でプロジェクトにコピーします | MIT |
 | `Blender/TankTrack_Models.blend` | 同梱モデルの元データ（Blender 5.3） | MIT |
 
 - 著作権: Copyright (c) 2026 SMC-AD Project（[LICENSE](LICENSE)）。改変・再配布・商用利用も、MIT の条件（著作権表示とライセンス文を残す）の範囲で自由です
@@ -56,7 +56,7 @@ Scrap Mechanic のブループリント
 Unity の Package Manager > + > **Add package from git URL…** に次を入力します。
 
 ```
-https://github.com/KULALENUMIO/SMC-AD-PLUS-UNITY-TANK-RIGGING.git?path=/com.tankrig.unity
+https://github.com/KULALENUMIO/SMC-AD-TankRigging.git?path=/com.smcad.tankrig
 ```
 
 その後 `Tools > Tank Rig > 戦車組み立てウィンドウ` を開きます（使い方はパッケージの README）。

@@ -3,5 +3,5 @@
 *.blend binary
 *.png binary
 # baked flipbooks: binary (never line-ending converted)
-com.tankrig.unity/Runtime/Resources/TankRigFX/BlastAtlas.asset binary
-com.tankrig.unity/Runtime/Resources/TankRigFX/BlastAtlas.asset filter=lfs diff=lfs merge=lfs -text
+com.smcad.tankrig/Runtime/Resources/TankRigFX/BlastAtlas.asset binary
+com.smcad.tankrig/Runtime/Resources/TankRigFX/BlastAtlas.asset filter=lfs diff=lfs merge=lfs -text

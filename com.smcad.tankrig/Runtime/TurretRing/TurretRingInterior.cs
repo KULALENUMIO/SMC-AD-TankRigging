@@ -55,7 +55,7 @@ namespace TankRig
             Apply();
         }
 
-        const string ShaderPath = "Packages/com.tankrig.unity/Runtime/Shaders/Turret Ring Interior.shadergraph";
+        const string ShaderPath = "Packages/com.smcad.tankrig/Runtime/Shaders/Turret Ring Interior.shadergraph";
 
         void Reset()
         {
