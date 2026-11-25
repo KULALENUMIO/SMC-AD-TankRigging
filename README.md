@@ -11,6 +11,8 @@
 > not considered for now. Updates happen on a whim — please don't expect regular updates, fixes or support. Things may change
 > without notice, and this repository may be deleted or replaced by another one if a proper release is ever made.
 
+> 道具の一覧・どれを入れればいいか・ダウンロードは案内ページにまとめています: **<https://kulalenumio.github.io/>**
+
 **SMC-AD Tank Rigging for Unity** は、SMC-AD で Unity に取り込んだ戦車を、**WASD とマウスで操縦できる戦車**にする Unity エディタ拡張です。
 組み立てウィンドウで車体・砲塔・砲座・砲身を選び、履帯（6 輪 / 7 輪、リンク 5 種）を左右対称に置いて、ワンクリックでリギングします。
 
@@ -27,12 +29,12 @@
 ```
 Scrap Mechanic のブループリント
   → SMC-AD（変換ツール + Blender 拡張）で Blender に取り込み・整理 → Unity 向けに書き出し
-  → SMC-AD の Unity パッケージ（com.smcad.unity）で Unity に取り込み
+  → SMC-AD の Unity パッケージ（com.smcad.importer）で Unity に取り込み
   → このプラグインで 履帯の組み合わせ・リギング・操縦
 ```
 
 - 部位の自動検出は、SMC-AD の Unity パッケージが付ける `SMBody` / `SMJoint`（回転軸の情報）を読みます。SMC-AD のパッケージがなくてもコンパイルはできますが（リフレクションで読むだけで、コードには依存しません）、その場合は部位と回転軸を手で指定・推定することになります
-- 確認しているのは、SMC-AD v0.6.0-alpha + `com.smcad.unity` 0.3.0 で取り込んだ戦車だけです
+- 確認しているのは、SMC-AD v0.7.0-alpha + `com.smcad.importer` 0.5.0 で取り込んだ戦車だけです
 
 ## 構成
 
@@ -47,9 +49,9 @@ Scrap Mechanic のブループリント
 
 ## 必要なもの
 
-- Unity 6（`6000.0` 以降。確認は **6000.3 / URP**）
+- Unity 6（`6000.3` 以降）+ **HDRP 17.3 以降**（HDRP 専用。URP 版の配布は終了しました）
 - Input System パッケージ（依存として自動で入ります）。Player Settings の **Active Input Handling** が「Input System Package (New)」か「Both」になっていること
-- 戦車モデル: [SMC-AD](https://github.com/KULALENUMIO/SMC-AD) で取り込んだもの（`com.smcad.unity` 導入済みのプロジェクト）
+- 戦車モデル: [SMC-AD](https://github.com/KULALENUMIO/SMC-AD) で取り込んだもの（`com.smcad.importer` 導入済みの HDRP プロジェクト）
 
 ## 入れ方
 
@@ -58,6 +60,8 @@ Unity の Package Manager > + > **Add package from git URL…** に次を入力�
 ```
 https://github.com/KULALENUMIO/SMC-AD-TankRigging.git?path=/com.smcad.tankrig
 ```
+
+（Git LFS が必要です。ない場合は [Releases](https://github.com/KULALENUMIO/SMC-AD-TankRigging/releases) の tgz を「Add package from tarball...」で入れてください）
 
 その後 `Tools > SMC-AD > 戦車（Tank Rigging） > 戦車組み立てウィンドウ` を開きます（使い方はパッケージの README）。
 
